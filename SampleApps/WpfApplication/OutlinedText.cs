@@ -4,6 +4,7 @@ using System.Windows.Media;
 
 namespace WpfApplication
 {
+#if null
     public class OutlinedText : FrameworkElement
     {
         private GlyphRun glyphRun;
@@ -142,4 +143,5 @@ namespace WpfApplication
             return true;
         }
     }
+#endif
 }
