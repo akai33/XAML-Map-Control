@@ -342,7 +342,7 @@ namespace MapControl
             if (parentMap != null && TileGrid != null && TileSource != null)
             {
                 var maxZoomLevel = Math.Min(TileGrid.ZoomLevel, MaxZoomLevel);
-                var minZoomLevel = MinZoomLevel;
+                var minZoomLevel = Math.Max(maxZoomLevel - 1, MinZoomLevel); //MinZoomLevel
 
                 if (minZoomLevel < maxZoomLevel && parentMap.MapLayer != this)
                 {
