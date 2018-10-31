@@ -48,6 +48,8 @@ namespace MapControl
         private readonly ConcurrentStack<Tile> pendingTiles = new ConcurrentStack<Tile>();
         private int taskCount;
 
+        public event EventHandler<ErrorEventArgs> ErrorOccured;
+
         /// <summary>
         /// Loads all pending tiles from the Tiles collection of a MapTileLayer by running up to MaxLoadTasks parallel Tasks.
         /// If the TileSource's SourceName is non-empty and its UriFormat starts with "http", tile images are cached in the
@@ -104,7 +106,12 @@ namespace MapControl
                 }
                 catch (Exception ex)
                 {
-                    Debug.WriteLine("TileImageLoader: {0}/{1}/{2}: {3}", tile.ZoomLevel, tile.XIndex, tile.Y, ex.Message);
+                    string ErrorMessage = ex.Message;
+                    if (ex.InnerException != null)
+                        ErrorMessage += " --> " + ex.InnerException.Message;
+
+                    ErrorOccured?.Invoke(this, new ErrorEventArgs(String.Format("Can't load tile {0}/{1}/{2}. {3}", tile.ZoomLevel, tile.XIndex, tile.Y, ErrorMessage)));
+                    Debug.WriteLine("TileImageLoader: {0}/{1}/{2}: {3}", tile.ZoomLevel, tile.XIndex, tile.Y, ErrorMessage);
                 }
             }
 

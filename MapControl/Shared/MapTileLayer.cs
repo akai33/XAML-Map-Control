@@ -19,8 +19,20 @@ using System.Windows.Threading;
 
 namespace MapControl
 {
+    public class ErrorEventArgs : EventArgs
+    {
+        public ErrorEventArgs(string errorMessage)
+        {
+            ErrorMessage = errorMessage;
+        }
+
+        public string ErrorMessage { get; }
+    }
+
     public interface ITileImageLoader
     {
+        event EventHandler<ErrorEventArgs> ErrorOccured;
+
         void LoadTilesAsync(MapTileLayer tileLayer);
     }
 

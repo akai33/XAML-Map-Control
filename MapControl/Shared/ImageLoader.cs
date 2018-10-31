@@ -28,26 +28,18 @@ namespace MapControl
         {
             ImageSource imageSource = null;
 
-            try
+            if (!uri.IsAbsoluteUri || uri.Scheme == "file")
             {
-                if (!uri.IsAbsoluteUri || uri.Scheme == "file")
-                {
-                    imageSource = await LoadLocalImageAsync(uri);
-                }
-                else if (uri.Scheme == "http" || uri.Scheme == "https")
-                {
-                    imageSource = await LoadHttpImageAsync(uri);
-                }
-                else
-                {
-                    imageSource = new BitmapImage(uri);
-                }
+                imageSource = await LoadLocalImageAsync(uri);
             }
-            catch (Exception ex)
+            else if (uri.Scheme == "http" || uri.Scheme == "https")
             {
-                Debug.WriteLine("ImageLoader: {0}: {1}", uri, ex.Message);
+                imageSource = await LoadHttpImageAsync(uri);
             }
-
+            else
+            {
+                imageSource = new BitmapImage(uri);
+            }
             return imageSource;
         }
 
@@ -57,11 +49,9 @@ namespace MapControl
 
             using (var response = await HttpClient.GetAsync(uri))
             {
-                if (!response.IsSuccessStatusCode)
-                {
-                    Debug.WriteLine("ImageLoader: {0}: {1} {2}", uri, (int)response.StatusCode, response.ReasonPhrase);
-                }
-                else if (IsTileAvailable(response.Headers))
+                response.EnsureSuccessStatusCode();
+
+                if (IsTileAvailable(response.Headers))
                 {
                     imageSource = await LoadImageAsync(response.Content);
                 }
