@@ -58,6 +58,13 @@ namespace MapControl
             }
         }
 
+        public enum TilesLoadRange
+        {
+            MinimumLevel,
+            UpperLevel,
+            CurrentLevel
+        }
+
         public static readonly DependencyProperty TileSourceProperty = DependencyProperty.Register(
             nameof(TileSource), typeof(TileSource), typeof(MapTileLayer),
             new PropertyMetadata(null, (o, e) => ((MapTileLayer)o).TileSourcePropertyChanged()));
@@ -90,6 +97,9 @@ namespace MapControl
 
         public static readonly DependencyProperty MapForegroundProperty = DependencyProperty.Register(
             nameof(MapForeground), typeof(Brush), typeof(MapTileLayer), new PropertyMetadata(null));
+
+        public static readonly DependencyProperty TilesLoadModeProperty = DependencyProperty.Register(
+            nameof(TilesLoadMode), typeof(TilesLoadRange), typeof(MapTileLayer), new PropertyMetadata(TilesLoadRange.MinimumLevel));
 
         private readonly DispatcherTimer updateTimer;
         private MapBase parentMap;
@@ -205,6 +215,15 @@ namespace MapControl
         {
             get { return (Brush)GetValue(MapForegroundProperty); }
             set { SetValue(MapForegroundProperty, value); }
+        }
+
+        /// <summary>
+        /// The load mode of the tiles for the base layer. 
+        /// </summary>
+        public TilesLoadRange TilesLoadMode
+        {
+            get { return (TilesLoadRange)GetValue(TilesLoadModeProperty); }
+            set { SetValue(TilesLoadModeProperty, value); }
         }
 
         public MapBase ParentMap
@@ -354,7 +373,19 @@ namespace MapControl
             if (parentMap != null && TileGrid != null && TileSource != null)
             {
                 var maxZoomLevel = Math.Min(TileGrid.ZoomLevel, MaxZoomLevel);
-                var minZoomLevel = Math.Max(maxZoomLevel - 1, MinZoomLevel); //MinZoomLevel
+                int minZoomLevel;
+                switch (TilesLoadMode)
+                {
+                    case TilesLoadRange.CurrentLevel:
+                        minZoomLevel = maxZoomLevel;
+                        break;
+                    case TilesLoadRange.UpperLevel:
+                        minZoomLevel = Math.Max(maxZoomLevel - 1, MinZoomLevel);
+                        break;
+                    default:
+                        minZoomLevel = MinZoomLevel;
+                        break;
+                }
 
                 if (minZoomLevel < maxZoomLevel && parentMap.MapLayer != this)
                 {
