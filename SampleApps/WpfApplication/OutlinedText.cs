@@ -4,7 +4,6 @@ using System.Windows.Media;
 
 namespace WpfApplication
 {
-#if null
     public class OutlinedText : FrameworkElement
     {
         private GlyphRun glyphRun;
@@ -135,7 +134,7 @@ namespace WpfApplication
                     advanceWidths[i] = glyphTypeface.AdvanceWidths[glyphIndex] * FontSize;
                 }
 
-                glyphRun = new GlyphRun(glyphTypeface, 0, false, FontSize, 1f, glyphIndices, new Point(), advanceWidths, null, null, null, null, null, null);
+                glyphRun = new GlyphRun(glyphTypeface, 0, false, FontSize, glyphIndices, new Point(), advanceWidths, null, null, null, null, null, null);
 
                 outline = glyphRun.BuildGeometry().GetWidenedPathGeometry(new Pen(null, OutlineThickness * 2d));
             }
@@ -143,5 +142,4 @@ namespace WpfApplication
             return true;
         }
     }
-#endif
 }
