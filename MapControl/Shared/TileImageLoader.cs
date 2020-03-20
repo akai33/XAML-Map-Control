@@ -39,6 +39,11 @@ namespace MapControl
         public static TimeSpan DefaultCacheExpiration { get; set; } = TimeSpan.FromDays(1);
 
         /// <summary>
+        /// Disable the time expiration for cached images.
+        /// </summary>
+        public static bool CacheExpirationDisabled { get; set; } = false;
+
+        /// <summary>
         /// Format string for creating cache keys from the SourceName property of a TileSource,
         /// the ZoomLevel, XIndex, and Y properties of a Tile, and the image file extension.
         /// The default value is "{0};{1};{2};{3}{4}".

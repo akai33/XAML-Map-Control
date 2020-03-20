@@ -33,7 +33,7 @@ namespace MapControl
             DateTime expiration;
             var cacheBuffer = GetCachedImage(cacheKey, out expiration);
 
-            if (cacheBuffer == null || expiration < DateTime.UtcNow)
+            if (cacheBuffer == null || (expiration < DateTime.UtcNow && !CacheExpirationDisabled))
             {
                 var result = await ImageLoader.LoadHttpStreamAsync(uri);
 
