@@ -1,10 +1,9 @@
 ﻿// XAML Map Control - https://github.com/ClemensFischer/XAML-Map-Control
-// © 2018 Clemens Fischer
+// © 2021 Clemens Fischer
 // Licensed under the Microsoft Public License (Ms-PL)
 
 using System;
-using System.Globalization;
-#if WINDOWS_UWP
+#if WINUI || WINDOWS_UWP
 using Windows.Foundation;
 #else
 using System.Windows;
@@ -17,15 +16,11 @@ namespace MapControl
     /// </summary>
     public abstract class AzimuthalProjection : MapProjection
     {
-        public Location ProjectionCenter { get; private set; } = new Location();
-
         public override Rect BoundingBoxToRect(BoundingBox boundingBox)
         {
-            var cbbox = boundingBox as CenteredBoundingBox;
-
-            if (cbbox != null)
+            if (boundingBox is CenteredBoundingBox cbbox)
             {
-                var center = LocationToPoint(cbbox.Center);
+                var center = LocationToMap(cbbox.Center);
 
                 return new Rect(
                      center.X - cbbox.Width / 2d, center.Y - cbbox.Height / 2d,
@@ -37,37 +32,13 @@ namespace MapControl
 
         public override BoundingBox RectToBoundingBox(Rect rect)
         {
-            var center = PointToLocation(new Point(rect.X + rect.Width / 2d, rect.Y + rect.Height / 2d));
+            var center = MapToLocation(new Point(rect.X + rect.Width / 2d, rect.Y + rect.Height / 2d));
 
             return new CenteredBoundingBox(center, rect.Width, rect.Height); // width and height in meters
         }
 
-        public override void SetViewportTransform(Location projectionCenter, Location mapCenter, Point viewportCenter, double zoomLevel, double heading)
-        {
-            ProjectionCenter = projectionCenter;
-
-            base.SetViewportTransform(projectionCenter, mapCenter, viewportCenter, zoomLevel, heading);
-        }
-
-        public override string WmsQueryParameters(BoundingBox boundingBox)
-        {
-            if (string.IsNullOrEmpty(CrsId))
-            {
-                return null;
-            }
-
-            var rect = BoundingBoxToRect(boundingBox);
-            var width = (int)Math.Round(ViewportScale * rect.Width);
-            var height = (int)Math.Round(ViewportScale * rect.Height);
-
-            return string.Format(CultureInfo.InvariantCulture,
-                "CRS={0},1,{1},{2}&BBOX={3},{4},{5},{6}&WIDTH={7}&HEIGHT={8}",
-                CrsId, ProjectionCenter.Longitude, ProjectionCenter.Latitude,
-                rect.X, rect.Y, (rect.X + rect.Width), (rect.Y + rect.Height), width, height);
-        }
-
         /// <summary>
-        /// Calculates azimuth and distance in radians from location1 to location2.
+        /// Calculates azimuth and spherical distance in radians from location1 to location2.
         /// The returned distance has to be multiplied with an appropriate earth radius.
         /// </summary>
         public static void GetAzimuthDistance(Location location1, Location location2, out double azimuth, out double distance)
@@ -89,22 +60,31 @@ namespace MapControl
         }
 
         /// <summary>
-        /// Calculates the Location of the point given by azimuth and distance in radians from location.
+        /// Calculates the Location of the point given by azimuth and spherical distance in radians from location.
         /// </summary>
         public static Location GetLocation(Location location, double azimuth, double distance)
         {
-            var lat1 = location.Latitude * Math.PI / 180d;
-            var sinDistance = Math.Sin(distance);
-            var cosDistance = Math.Cos(distance);
-            var cosAzimuth = Math.Cos(azimuth);
-            var sinAzimuth = Math.Sin(azimuth);
-            var cosLat1 = Math.Cos(lat1);
-            var sinLat1 = Math.Sin(lat1);
-            var sinLat2 = sinLat1 * cosDistance + cosLat1 * sinDistance * cosAzimuth;
-            var lat2 = Math.Asin(Math.Min(Math.Max(sinLat2, -1d), 1d));
-            var dLon = Math.Atan2(sinDistance * sinAzimuth, cosLat1 * cosDistance - sinLat1 * sinDistance * cosAzimuth);
+            var lat = location.Latitude;
+            var lon = location.Longitude;
 
-            return new Location(lat2 * 180d / Math.PI, location.Longitude + dLon * 180d / Math.PI);
+            if (distance > 0d)
+            {
+                var lat1 = lat * Math.PI / 180d;
+                var sinDistance = Math.Sin(distance);
+                var cosDistance = Math.Cos(distance);
+                var cosAzimuth = Math.Cos(azimuth);
+                var sinAzimuth = Math.Sin(azimuth);
+                var cosLat1 = Math.Cos(lat1);
+                var sinLat1 = Math.Sin(lat1);
+                var sinLat2 = sinLat1 * cosDistance + cosLat1 * sinDistance * cosAzimuth;
+                var lat2 = Math.Asin(Math.Min(Math.Max(sinLat2, -1d), 1d));
+                var dLon = Math.Atan2(sinDistance * sinAzimuth, cosLat1 * cosDistance - sinLat1 * sinDistance * cosAzimuth);
+
+                lat = lat2 * 180d / Math.PI;
+                lon += dLon * 180d / Math.PI;
+            }
+
+            return new Location(lat, lon);
         }
     }
 }

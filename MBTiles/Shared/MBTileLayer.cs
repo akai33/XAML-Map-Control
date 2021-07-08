@@ -1,5 +1,5 @@
-// XAML Map Control - https://github.com/ClemensFischer/XAML-Map-Control
-// � 2018 Clemens Fischer
+﻿// XAML Map Control - https://github.com/ClemensFischer/XAML-Map-Control
+// © 2021 Clemens Fischer
 // Licensed under the Microsoft Public License (Ms-PL)
 
 using System.Threading.Tasks;
@@ -9,8 +9,11 @@ using Windows.UI.Xaml;
 using System.Windows;
 #endif
 
-namespace MapControl
+namespace MapControl.MBTiles
 {
+    /// <summary>
+    /// MapTileLayer that uses an MBTiles SQLite Database. See https://wiki.openstreetmap.org/wiki/MBTiles.
+    /// </summary>
     public class MBTileLayer : MapTileLayer
     {
         public static readonly DependencyProperty FileProperty = DependencyProperty.Register(
@@ -33,67 +36,49 @@ namespace MapControl
             set { SetValue(FileProperty, value); }
         }
 
+        /// <summary>
+        /// May be overridden to create a derived MBTileSource that handles other tile formats than png and jpg, e.g. pbf.
+        /// </summary>
+        protected virtual MBTileSource CreateTileSource(MBTileData tileData)
+        {
+            return new MBTileSource(tileData);
+        }
+
         private async Task FilePropertyChanged(string file)
         {
-            var mbTileSource = TileSource as MBTileSource;
+            (TileSource as MBTileSource)?.Dispose();
 
-            if (mbTileSource != null)
-            {
-                if (file == null)
-                {
-                    ClearValue(TileSourceProperty);
-
-                    if (mbTileSource.Name != null)
-                    {
-                        ClearValue(SourceNameProperty);
-                    }
-
-                    if (mbTileSource.Description != null)
-                    {
-                        ClearValue(DescriptionProperty);
-                    }
-
-                    if (mbTileSource.MinZoom.HasValue)
-                    {
-                        ClearValue(MinZoomLevelProperty);
-                    }
-
-                    if (mbTileSource.MaxZoom.HasValue)
-                    {
-                        ClearValue(MaxZoomLevelProperty);
-                    }
-                }
-
-                mbTileSource.Dispose();
-            }
+            ClearValue(TileSourceProperty);
+            ClearValue(SourceNameProperty);
+            ClearValue(DescriptionProperty);
+            ClearValue(MinZoomLevelProperty);
+            ClearValue(MaxZoomLevelProperty);
 
             if (file != null)
             {
-                mbTileSource = new MBTileSource(file);
+                var tileData = await MBTileData.CreateAsync(file);
 
-                await mbTileSource.Initialize();
-
-                if (mbTileSource.Name != null)
+                if (tileData.Metadata.TryGetValue("name", out string sourceName))
                 {
-                    SourceName = mbTileSource.Name;
+                    SourceName = sourceName;
                 }
 
-                if (mbTileSource.Description != null)
+                if (tileData.Metadata.TryGetValue("description", out string description))
                 {
-                    Description = mbTileSource.Description;
+                    Description = description;
                 }
 
-                if (mbTileSource.MinZoom.HasValue)
+                if (tileData.Metadata.TryGetValue("minzoom", out sourceName) && int.TryParse(sourceName, out int minZoom))
                 {
-                    MinZoomLevel = mbTileSource.MinZoom.Value;
+                    MinZoomLevel = minZoom;
                 }
 
-                if (mbTileSource.MaxZoom.HasValue)
+                if (tileData.Metadata.TryGetValue("maxzoom", out sourceName) && int.TryParse(sourceName, out int maxZoom))
                 {
-                    MaxZoomLevel = mbTileSource.MaxZoom.Value;
+                    MaxZoomLevel = maxZoom;
                 }
 
-                TileSource = mbTileSource;
+                TileSource = CreateTileSource(tileData);
             }
         }
     }

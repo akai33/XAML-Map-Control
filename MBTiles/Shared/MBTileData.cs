@@ -1,48 +1,59 @@
 ﻿// XAML Map Control - https://github.com/ClemensFischer/XAML-Map-Control
-// © 2018 Clemens Fischer
+// © 2021 Clemens Fischer
 // Licensed under the Microsoft Public License (Ms-PL)
 
 using System;
 using System.Collections.Generic;
-using System.Diagnostics;
-using System.Threading.Tasks;
-#if WINDOWS_UWP
-using SQLiteCommand = Microsoft.Data.Sqlite.SqliteCommand;
-using SQLiteConnection = Microsoft.Data.Sqlite.SqliteConnection;
-#else
 using System.Data.SQLite;
-#endif
+using System.Diagnostics;
+using System.IO;
+using System.Threading.Tasks;
 
-namespace MapControl
+namespace MapControl.MBTiles
 {
-    public class MBTileData : IDisposable
+    public sealed class MBTileData : IDisposable
     {
         private readonly SQLiteConnection connection;
 
-        public MBTileData(string file)
-        {
-            connection = new SQLiteConnection("Data Source=" + file);
-        }
+        public IDictionary<string, string> Metadata { get; } = new Dictionary<string, string>();
 
-        public Task OpenAsync()
+        private MBTileData(string file)
         {
-            return connection.OpenAsync();
-        }
-
-        public void Close()
-        {
-            connection.Close();
+            connection = new SQLiteConnection("Data Source=" + Path.GetFullPath(file));
         }
 
         public void Dispose()
         {
-            Close();
+            connection.Dispose();
         }
 
-        public async Task<IDictionary<string, string>> ReadMetadataAsync()
+        public static async Task<MBTileData> CreateAsync(string file)
         {
-            var metadata = new Dictionary<string, string>();
+            var tileData = new MBTileData(file);
 
+            await tileData.OpenAsync();
+            await tileData.ReadMetadataAsync();
+
+            return tileData;
+        }
+
+        private async Task OpenAsync()
+        {
+            await connection.OpenAsync();
+
+            using (var command = new SQLiteCommand("create table if not exists metadata (name string, value string)", connection))
+            {
+                await command.ExecuteNonQueryAsync();
+            }
+
+            using (var command = new SQLiteCommand("create table if not exists tiles (zoom_level integer, tile_column integer, tile_row integer, tile_data blob)", connection))
+            {
+                await command.ExecuteNonQueryAsync();
+            }
+        }
+
+        private async Task ReadMetadataAsync()
+        {
             try
             {
                 using (var command = new SQLiteCommand("select * from metadata", connection))
@@ -51,30 +62,23 @@ namespace MapControl
 
                     while (await reader.ReadAsync())
                     {
-                        metadata[(string)reader["name"]] = (string)reader["value"];
+                        Metadata[(string)reader["name"]] = (string)reader["value"];
                     }
                 }
             }
             catch (Exception ex)
             {
-                Debug.WriteLine("MBTileData: " + ex.Message);
+                Debug.WriteLine($"MBTileData: {ex.Message}");
             }
-
-            return metadata;
         }
 
-        public async Task WriteMetadataAsync(IDictionary<string, string> metadata)
+        public async Task WriteMetadataAsync()
         {
             try
             {
-                using (var command = new SQLiteCommand("create table if not exists metadata (name string, value string)", connection))
-                {
-                    await command.ExecuteNonQueryAsync();
-                }
-
                 using (var command = new SQLiteCommand("insert or replace into metadata (name, value) values (@n, @v)", connection))
                 {
-                    foreach (var keyValue in metadata)
+                    foreach (var keyValue in Metadata)
                     {
                         command.Parameters.AddWithValue("@n", keyValue.Key);
                         command.Parameters.AddWithValue("@v", keyValue.Value);
@@ -85,7 +89,7 @@ namespace MapControl
             }
             catch (Exception ex)
             {
-                Debug.WriteLine("MBTileData: " + ex.Message);
+                Debug.WriteLine($"MBTileData: {ex.Message}");
             }
         }
 
@@ -106,7 +110,7 @@ namespace MapControl
             }
             catch (Exception ex)
             {
-                Debug.WriteLine("MBTileData: {0}/{1}/{2}: {3}", zoomLevel, x, y, ex.Message);
+                Debug.WriteLine($"MBTileData: {zoomLevel}/{x}/{y}: {ex.Message}");
             }
 
             return imageBuffer;
@@ -116,11 +120,6 @@ namespace MapControl
         {
             try
             {
-                using (var command = new SQLiteCommand("create table if not exists tiles (zoom_level integer, tile_column integer, tile_row integer, tile_data blob)", connection))
-                {
-                    await command.ExecuteNonQueryAsync();
-                }
-
                 using (var command = new SQLiteCommand("insert or replace into tiles (zoom_level, tile_column, tile_row, tile_data) values (@z, @x, @y, @b)", connection))
                 {
                     command.Parameters.AddWithValue("@z", zoomLevel);
@@ -133,7 +132,7 @@ namespace MapControl
             }
             catch (Exception ex)
             {
-                Debug.WriteLine("MBTileData: {0}/{1}/{2}: {3}", zoomLevel, x, y, ex.Message);
+                Debug.WriteLine($"MBTileData: {zoomLevel}/{x}/{y}: {ex.Message}");
             }
         }
     }

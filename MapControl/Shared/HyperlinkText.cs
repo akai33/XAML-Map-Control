@@ -1,15 +1,20 @@
 ﻿// XAML Map Control - https://github.com/ClemensFischer/XAML-Map-Control
-// © 2018 Clemens Fischer
+// © 2021 Clemens Fischer
 // Licensed under the Microsoft Public License (Ms-PL)
 
 using System;
 using System.Collections.Generic;
 using System.Text.RegularExpressions;
-#if WINDOWS_UWP
+#if WINUI
+using Microsoft.UI.Xaml;
+using Microsoft.UI.Xaml.Controls;
+using Microsoft.UI.Xaml.Documents;
+#elif WINDOWS_UWP
 using Windows.UI.Xaml;
 using Windows.UI.Xaml.Controls;
 using Windows.UI.Xaml.Documents;
 #else
+using System.Diagnostics;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Documents;
@@ -19,7 +24,7 @@ namespace MapControl
 {
     public static class HyperlinkText
     {
-        private static Regex regex = new Regex(@"\[([^\]]+)\]\(([^\)]+)\)");
+        private static readonly Regex regex = new Regex(@"\[([^\]]+)\]\(([^\)]+)\)");
 
         /// <summary>
         /// Converts text containing hyperlinks in markdown syntax [text](url)
@@ -32,20 +37,30 @@ namespace MapControl
             while (!string.IsNullOrEmpty(text))
             {
                 var match = regex.Match(text);
-                Uri uri;
 
                 if (match.Success &&
                     match.Groups.Count == 3 &&
-                    Uri.TryCreate(match.Groups[2].Value, UriKind.Absolute, out uri))
+                    Uri.TryCreate(match.Groups[2].Value, UriKind.Absolute, out Uri uri))
                 {
                     inlines.Add(new Run { Text = text.Substring(0, match.Index) });
                     text = text.Substring(match.Index + match.Length);
 
                     var link = new Hyperlink { NavigateUri = uri };
                     link.Inlines.Add(new Run { Text = match.Groups[1].Value });
-#if !WINDOWS_UWP
+#if !WINUI && !WINDOWS_UWP
                     link.ToolTip = uri.ToString();
-                    link.RequestNavigate += (s, e) => System.Diagnostics.Process.Start(e.Uri.ToString());
+
+                    link.RequestNavigate += (s, e) =>
+                    {
+                        try
+                        {
+                            Process.Start(new ProcessStartInfo(e.Uri.ToString()) { UseShellExecute = true });
+                        }
+                        catch (Exception ex)
+                        {
+                            Debug.WriteLine($"{e.Uri}: {ex}");
+                        }
+                    };
 #endif
                     inlines.Add(link);
                 }
@@ -76,13 +91,13 @@ namespace MapControl
         {
             InlineCollection inlines = null;
 
-            if (obj is TextBlock)
+            if (obj is TextBlock block)
             {
-                inlines = ((TextBlock)obj).Inlines;
+                inlines = block.Inlines;
             }
-            else if (obj is Paragraph)
+            else if (obj is Paragraph paragraph)
             {
-                inlines = ((Paragraph)obj).Inlines;
+                inlines = paragraph.Inlines;
             }
 
             if (inlines != null)

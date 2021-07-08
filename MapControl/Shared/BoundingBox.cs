@@ -1,5 +1,5 @@
 ﻿// XAML Map Control - https://github.com/ClemensFischer/XAML-Map-Control
-// © 2018 Clemens Fischer
+// © 2021 Clemens Fischer
 // Licensed under the Microsoft Public License (Ms-PL)
 
 using System;
@@ -16,9 +16,7 @@ namespace MapControl
     public class BoundingBox
     {
         private double south;
-        private double west;
         private double north;
-        private double east;
 
         public BoundingBox()
         {
@@ -32,16 +30,14 @@ namespace MapControl
             East = east;
         }
 
+        public double West { get; set; }
+
+        public double East { get; set; }
+
         public double South
         {
             get { return south; }
             set { south = Math.Min(Math.Max(value, -90d), 90d); }
-        }
-
-        public double West
-        {
-            get { return west; }
-            set { west = value; }
         }
 
         public double North
@@ -50,30 +46,19 @@ namespace MapControl
             set { north = Math.Min(Math.Max(value, -90d), 90d); }
         }
 
-        public double East
-        {
-            get { return east; }
-            set { east = value; }
-        }
-
         public virtual double Width
         {
-            get { return east - west; }
+            get { return East - West; }
         }
 
         public virtual double Height
         {
-            get { return north - south; }
-        }
-
-        public bool HasValidBounds
-        {
-            get { return south < north && west < east; }
+            get { return North - South; }
         }
 
         public virtual BoundingBox Clone()
         {
-            return new BoundingBox(south, west, north, east);
+            return new BoundingBox(South, West, North, East);
         }
 
         public static BoundingBox Parse(string s)

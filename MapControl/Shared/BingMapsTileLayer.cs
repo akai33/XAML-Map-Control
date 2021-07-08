@@ -1,17 +1,18 @@
 ﻿// XAML Map Control - https://github.com/ClemensFischer/XAML-Map-Control
-// © 2018 Clemens Fischer
+// © 2021 Clemens Fischer
 // Licensed under the Microsoft Public License (Ms-PL)
 
 using System;
 using System.Diagnostics;
 using System.Globalization;
 using System.Linq;
-#if WINDOWS_UWP
-using Windows.Data.Xml.Dom;
+using System.Xml.Linq;
+#if WINUI
+using Microsoft.UI.Xaml;
+#elif WINDOWS_UWP
 using Windows.UI.Xaml;
 #else
 using System.Windows;
-using System.Xml;
 #endif
 
 namespace MapControl
@@ -47,92 +48,75 @@ namespace MapControl
         public string Culture { get; set; }
         public Uri LogoImageUri { get; private set; }
 
-        private async void OnLoaded(object sender, RoutedEventArgs e)
+        private async void OnLoaded(object sender, RoutedEventArgs args)
         {
             Loaded -= OnLoaded;
 
-            if (string.IsNullOrEmpty(ApiKey))
+            if (!string.IsNullOrEmpty(ApiKey))
+            {
+                var metadataUri = $"http://dev.virtualearth.net/REST/V1/Imagery/Metadata/{Mode}?output=xml&key={ApiKey}";
+
+                try
+                {
+                    using (var stream = await ImageLoader.HttpClient.GetStreamAsync(metadataUri))
+                    {
+                        ReadImageryMetadata(XDocument.Load(stream).Root);
+                    }
+                }
+                catch (Exception ex)
+                {
+                    Debug.WriteLine($"BingMapsTileLayer: {metadataUri}: {ex.Message}");
+                }
+            }
+            else
             {
                 Debug.WriteLine("BingMapsTileLayer requires a Bing Maps API Key");
-                return;
-            }
-
-            var imageryMetadataUrl = "http://dev.virtualearth.net/REST/V1/Imagery/Metadata/" + Mode;
-
-            try
-            {
-                var uri = new Uri(imageryMetadataUrl + "?output=xml&key=" + ApiKey);
-                var document = await XmlDocument.LoadFromUriAsync(uri);
-                var imageryMetadata = document.DocumentElement.GetElementsByTagName("ImageryMetadata").OfType<XmlElement>().FirstOrDefault();
-
-                if (imageryMetadata != null)
-                {
-                    ReadImageryMetadata(imageryMetadata);
-                }
-
-                var brandLogoUri = document.DocumentElement.GetElementsByTagName("BrandLogoUri").OfType<XmlElement>().FirstOrDefault();
-
-                if (brandLogoUri != null)
-                {
-                    LogoImageUri = new Uri(brandLogoUri.InnerText);
-                }
-            }
-            catch (Exception ex)
-            {
-                Debug.WriteLine("BingMapsTileLayer: {0}: {1}", imageryMetadataUrl, ex.Message);
             }
         }
 
-        private void ReadImageryMetadata(XmlElement imageryMetadata)
+        private void ReadImageryMetadata(XElement metadataResponse)
         {
-            string imageUrl = null;
-            string[] imageUrlSubdomains = null;
-            int? zoomMin = null;
-            int? zoomMax = null;
+            var ns = metadataResponse.Name.Namespace;
+            var metadata = metadataResponse.Descendants(ns + "ImageryMetadata").FirstOrDefault();
 
-            foreach (var element in imageryMetadata.ChildNodes.OfType<XmlElement>())
+            if (metadata != null)
             {
-                switch ((string)element.LocalName)
+                var imageUrl = metadata.Element(ns + "ImageUrl")?.Value;
+                var subdomains = metadata.Element(ns + "ImageUrlSubdomains")?.Elements(ns + "string").Select(e => e.Value).ToArray();
+
+                if (!string.IsNullOrEmpty(imageUrl) && subdomains != null && subdomains.Length > 0)
                 {
-                    case "ImageUrl":
-                        imageUrl = element.InnerText;
-                        break;
-                    case "ImageUrlSubdomains":
-                        imageUrlSubdomains = element.ChildNodes
-                            .OfType<XmlElement>()
-                            .Where(e => (string)e.LocalName == "string")
-                            .Select(e => e.InnerText)
-                            .ToArray();
-                        break;
-                    case "ZoomMin":
-                        zoomMin = int.Parse(element.InnerText);
-                        break;
-                    case "ZoomMax":
-                        zoomMax = int.Parse(element.InnerText);
-                        break;
-                    default:
-                        break;
+                    var zoomMin = metadata.Element(ns + "ZoomMin")?.Value;
+                    var zoomMax = metadata.Element(ns + "ZoomMax")?.Value;
+
+                    if (zoomMin != null && int.TryParse(zoomMin, out int zoomLevel) && MinZoomLevel < zoomLevel)
+                    {
+                        MinZoomLevel = zoomLevel;
+                    }
+
+                    if (zoomMax != null && int.TryParse(zoomMax, out zoomLevel) && MaxZoomLevel > zoomLevel)
+                    {
+                        MaxZoomLevel = zoomLevel;
+                    }
+
+                    if (string.IsNullOrEmpty(Culture))
+                    {
+                        Culture = CultureInfo.CurrentUICulture.Name;
+                    }
+
+                    TileSource = new BingMapsTileSource
+                    {
+                        UriFormat = imageUrl.Replace("{culture}", Culture),
+                        Subdomains = subdomains
+                    };
                 }
             }
 
-            if (!string.IsNullOrEmpty(imageUrl) && imageUrlSubdomains != null && imageUrlSubdomains.Length > 0)
+            var logoUri = metadataResponse.Element(ns + "BrandLogoUri");
+
+            if (logoUri != null)
             {
-                if (zoomMin.HasValue && zoomMin.Value > MinZoomLevel)
-                {
-                    MinZoomLevel = zoomMin.Value;
-                }
-
-                if (zoomMax.HasValue && zoomMax.Value < MaxZoomLevel)
-                {
-                    MaxZoomLevel = zoomMax.Value;
-                }
-
-                if (string.IsNullOrEmpty(Culture))
-                {
-                    Culture = CultureInfo.CurrentUICulture.Name;
-                }
-
-                TileSource = new BingMapsTileSource(imageUrl.Replace("{culture}", Culture), imageUrlSubdomains);
+                LogoImageUri = new Uri(logoUri.Value);
             }
         }
     }

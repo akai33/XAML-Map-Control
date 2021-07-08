@@ -1,15 +1,15 @@
 ﻿// XAML Map Control - https://github.com/ClemensFischer/XAML-Map-Control
-// © 2018 Clemens Fischer
+// © 2021 Clemens Fischer
 // Licensed under the Microsoft Public License (Ms-PL)
 
-#if WINDOWS_UWP
+#if WINUI
+using Microsoft.UI.Xaml.Media;
 using Windows.UI.Text;
-using Windows.UI.Xaml;
-using Windows.UI.Xaml.Data;
+#elif WINDOWS_UWP
+using Windows.UI.Text;
 using Windows.UI.Xaml.Media;
 #else
 using System.Windows;
-using System.Windows.Data;
 using System.Windows.Media;
 #endif
 
@@ -108,12 +108,6 @@ namespace MapControl
         {
             get { return (double)GetValue(StrokeMiterLimitProperty); }
             set { SetValue(StrokeMiterLimitProperty, value); }
-        }
-
-        protected Binding GetBinding(DependencyProperty property, string propertyName)
-        {
-            return GetBindingExpression(property)?.ParentBinding ??
-                new Binding { Source = this, Path = new PropertyPath(propertyName) };
         }
     }
 }

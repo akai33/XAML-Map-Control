@@ -1,11 +1,17 @@
 ﻿// XAML Map Control - https://github.com/ClemensFischer/XAML-Map-Control
-// © 2018 Clemens Fischer
+// © 2021 Clemens Fischer
 // Licensed under the Microsoft Public License (Ms-PL)
 
+#if WINUI
+using Microsoft.UI.Text;
+using Microsoft.UI.Xaml;
+using Microsoft.UI.Xaml.Media;
+using Windows.UI.Text;
+#else
 using Windows.UI.Text;
 using Windows.UI.Xaml;
-using Windows.UI.Xaml.Data;
 using Windows.UI.Xaml.Media;
+#endif
 
 namespace MapControl
 {
@@ -56,21 +62,17 @@ namespace MapControl
         public static readonly DependencyProperty StrokeMiterLimitProperty = DependencyProperty.Register(
             nameof(StrokeMiterLimit), typeof(double), typeof(MapOverlay), new PropertyMetadata(1d));
 
+        public MapOverlay()
+        {
+            IsHitTestVisible = false;
+        }
+
         protected override void SetParentMap(MapBase map)
         {
             if (map != null)
             {
-                if (Foreground == null)
-                {
-                    SetBinding(ForegroundProperty,
-                        map.GetBindingExpression(MapBase.ForegroundProperty)?.ParentBinding ??
-                        new Binding { Source = map, Path = new PropertyPath("Foreground") });
-                }
-
-                if (Stroke == null)
-                {
-                    SetBinding(StrokeProperty, GetBinding(ForegroundProperty, nameof(Foreground)));
-                }
+                this.ValidateProperty(ForegroundProperty, map, nameof(MapBase.Foreground));
+                this.ValidateProperty(StrokeProperty, this, nameof(Foreground));
             }
 
             base.SetParentMap(map);

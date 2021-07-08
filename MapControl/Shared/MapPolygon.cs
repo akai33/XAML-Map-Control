@@ -1,13 +1,16 @@
 ﻿// XAML Map Control - https://github.com/ClemensFischer/XAML-Map-Control
-// © 2018 Clemens Fischer
+// © 2021 Clemens Fischer
 // Licensed under the Microsoft Public License (Ms-PL)
 
 using System.Collections.Generic;
-#if WINDOWS_UWP
+using System.Linq;
+#if WINUI
+using Microsoft.UI.Xaml;
+using Microsoft.UI.Xaml.Media;
+#elif WINDOWS_UWP
 using Windows.UI.Xaml;
 using Windows.UI.Xaml.Media;
 #else
-using System.ComponentModel;
 using System.Windows;
 using System.Windows.Media;
 #endif
@@ -17,7 +20,7 @@ namespace MapControl
     /// <summary>
     /// A polygon defined by a collection of Locations.
     /// </summary>
-    public class MapPolygon : MapShape
+    public class MapPolygon : MapPath
     {
         public static readonly DependencyProperty LocationsProperty = DependencyProperty.Register(
             nameof(Locations), typeof(IEnumerable<Location>), typeof(MapPolygon),
@@ -27,7 +30,7 @@ namespace MapControl
         /// Gets or sets the Locations that define the polygon points.
         /// </summary>
 #if !WINDOWS_UWP
-        [TypeConverter(typeof(LocationCollectionConverter))]
+        [System.ComponentModel.TypeConverter(typeof(LocationCollectionConverter))]
 #endif
         public IEnumerable<Location> Locations
         {
@@ -35,14 +38,21 @@ namespace MapControl
             set { SetValue(LocationsProperty, value); }
         }
 
+        public MapPolygon()
+        {
+            Data = new PathGeometry();
+        }
+
         protected override void UpdateData()
         {
-            var figures = ((PathGeometry)Data).Figures;
-            figures.Clear();
+            var pathFigures = ((PathGeometry)Data).Figures;
+            pathFigures.Clear();
 
-            if (ParentMap != null)
+            if (ParentMap != null && Locations != null)
             {
-                AddPolylineLocations(figures, Locations, true);
+                var longitudeOffset = GetLongitudeOffset(Location ?? Locations.FirstOrDefault());
+
+                AddPolylineLocations(pathFigures, Locations, longitudeOffset, true);
             }
         }
     }

@@ -2,7 +2,11 @@
 using System;
 using System.Collections.Generic;
 using System.ComponentModel;
-#if WINDOWS_UWP
+#if WINUI
+using Microsoft.UI;
+using Microsoft.UI.Xaml;
+using Microsoft.UI.Xaml.Media;
+#elif WINDOWS_UWP
 using Windows.UI;
 using Windows.UI.Xaml;
 using Windows.UI.Xaml.Media;
@@ -21,44 +25,47 @@ namespace ViewModel
         {
             {
                 "OpenStreetMap",
-                MapTileLayer.OpenStreetMapTileLayer
+                new MapTileLayer
+                {
+                    TileSource = new TileSource { UriFormat = "https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png" },
+                    SourceName = "OpenStreetMap",
+                    Description = "© [OpenStreetMap contributors](http://www.openstreetmap.org/copyright)"
+                }
             },
             {
                 "OpenStreetMap German",
                 new MapTileLayer
                 {
+                    TileSource = new TileSource { UriFormat = "https://{s}.tile.openstreetmap.de/{z}/{x}/{y}.png" },
                     SourceName = "OpenStreetMap German",
-                    Description = "© [OpenStreetMap contributors](http://www.openstreetmap.org/copyright)",
-                    TileSource = new TileSource { UriFormat = "http://{c}.tile.openstreetmap.de/tiles/osmde/{z}/{x}/{y}.png" },
-                    MaxZoomLevel = 19
+                    Description = "© [OpenStreetMap contributors](http://www.openstreetmap.org/copyright)"
                 }
             },
             {
-                "Stamen Terrain",
+                "OpenStreetMap French",
                 new MapTileLayer
                 {
-                    SourceName = "Stamen Terrain",
-                    Description = "Map tiles by [Stamen Design](http://stamen.com/), under [CC BY 3.0](http://creativecommons.org/licenses/by/3.0)\nData by [OpenStreetMap](http://openstreetmap.org/), under [ODbL](http://www.openstreetmap.org/copyright)",
-                    TileSource = new TileSource { UriFormat = "http://tile.stamen.com/terrain/{z}/{x}/{y}.png" },
+                    TileSource = new TileSource { UriFormat = "https://{s}.tile.openstreetmap.fr/osmfr/{z}/{x}/{y}.png" },
+                    SourceName = "OpenStreetMap French",
+                    Description = "© [OpenStreetMap France](https://www.openstreetmap.fr/mentions-legales/) © [OpenStreetMap contributors](http://www.openstreetmap.org/copyright)"
+                }
+            },
+            {
+                "OpenTopoMap",
+                new MapTileLayer
+                {
+                    TileSource = new TileSource { UriFormat = "https://{s}.tile.opentopomap.org/{z}/{x}/{y}.png" },
+                    SourceName = "OpenTopoMap",
+                    Description = "© [OpenTopoMap](https://opentopomap.org/) © [OpenStreetMap contributors](http://www.openstreetmap.org/copyright)",
                     MaxZoomLevel = 17
-                }
-            },
-            {
-                "Stamen Toner Light",
-                new MapTileLayer
-                {
-                    SourceName = "Stamen Toner Light",
-                    Description = "Map tiles by [Stamen Design](http://stamen.com/), under [CC BY 3.0](http://creativecommons.org/licenses/by/3.0)\nData by [OpenStreetMap](http://openstreetmap.org/), under [ODbL](http://www.openstreetmap.org/copyright)",
-                    TileSource = new TileSource { UriFormat = "http://tile.stamen.com/toner-lite/{z}/{x}/{y}.png" },
-                    MaxZoomLevel = 18
                 }
             },
             {
                 "Seamarks",
                 new MapTileLayer
                 {
-                    SourceName = "OpenSeaMap",
                     TileSource = new TileSource { UriFormat = "http://tiles.openseamap.org/seamark/{z}/{x}/{y}.png" },
+                    SourceName = "OpenSeaMap",
                     MinZoomLevel = 9,
                     MaxZoomLevel = 18
                 }
@@ -67,18 +74,18 @@ namespace ViewModel
                 "Bing Maps Road",
                 new BingMapsTileLayer
                 {
+                    Mode = BingMapsTileLayer.MapMode.Road,
                     SourceName = "Bing Maps Road",
-                    Description = "© [Microsoft](http://www.bing.com/maps/)",
-                    Mode = BingMapsTileLayer.MapMode.Road
+                    Description = "© [Microsoft](http://www.bing.com/maps/)"
                 }
             },
             {
                 "Bing Maps Aerial",
                 new BingMapsTileLayer
                 {
+                    Mode = BingMapsTileLayer.MapMode.Aerial,
                     SourceName = "Bing Maps Aerial",
                     Description = "© [Microsoft](http://www.bing.com/maps/)",
-                    Mode = BingMapsTileLayer.MapMode.Aerial,
                     MapForeground = new SolidColorBrush(Colors.White),
                     MapBackground = new SolidColorBrush(Colors.Black)
                 }
@@ -87,41 +94,38 @@ namespace ViewModel
                 "Bing Maps Aerial with Labels",
                 new BingMapsTileLayer
                 {
+                    Mode = BingMapsTileLayer.MapMode.AerialWithLabels,
                     SourceName = "Bing Maps Hybrid",
                     Description = "© [Microsoft](http://www.bing.com/maps/)",
-                    Mode = BingMapsTileLayer.MapMode.AerialWithLabels,
                     MapForeground = new SolidColorBrush(Colors.White),
                     MapBackground = new SolidColorBrush(Colors.Black)
+                }
+            },
+            {
+                "TopPlusOpen WMTS",
+                new WmtsTileLayer
+                {
+                    SourceName = "TopPlusOpen",
+                    Description = "© [BKG](https://gdz.bkg.bund.de/index.php/default/webdienste/topplus-produkte/wmts-topplusopen-wmts-topplus-open.html)",
+                    CapabilitiesUri = new Uri("https://sgx.geodatenzentrum.de/wmts_topplus_open/1.0.0/WMTSCapabilities.xml")
+                }
+            },
+            {
+                "TopPlusOpen WMS",
+                new WmsImageLayer
+                {
+                    Description = "© [BKG](https://gdz.bkg.bund.de/index.php/default/webdienste/topplus-produkte/wms-topplusopen-mit-layer-fur-normalausgabe-und-druck-wms-topplus-open.html)",
+                    ServiceUri = new Uri("https://sgx.geodatenzentrum.de/wms_topplus_open")
                 }
             },
             {
                 "OpenStreetMap WMS",
                 new WmsImageLayer
                 {
-                    Description = "© [terrestris GmbH & Co. KG](http://ows.terrestris.de/)\nData © [OpenStreetMap contributors](http://www.openstreetmap.org/copyright)",
-                    ServiceUri = new Uri("http://ows.terrestris.de/osm/service"),
-                    Layers = "OSM-WMS"
+                    Description = "© [terrestris GmbH & Co. KG](http://ows.terrestris.de/) © [OpenStreetMap contributors](http://www.openstreetmap.org/copyright)",
+                    ServiceUri = new Uri("http://ows.terrestris.de/osm/service")
                 }
             },
-            {
-                "OpenStreetMap TOPO WMS",
-                new WmsImageLayer
-                {
-                    Description = "© [terrestris GmbH & Co. KG](http://ows.terrestris.de/)\nData © [OpenStreetMap contributors](http://www.openstreetmap.org/copyright)",
-                    ServiceUri = new Uri("http://ows.terrestris.de/osm/service"),
-                    Layers = "TOPO-OSM-WMS"
-                }
-            },
-            {
-                "SevenCs ChartServer",
-                new WmsImageLayer
-                {
-                    Description = "© [SevenCs GmbH](http://www.sevencs.com)",
-                    ServiceUri = new Uri("http://chartserver4.sevencs.com:8080"),
-                    Layers = "ENC",
-                    MaxBoundingBoxWidth = 360
-                }
-            }
         };
 
         private string currentMapLayerName = "OpenStreetMap";
@@ -151,20 +155,18 @@ namespace ViewModel
         {
             "OpenStreetMap",
             "OpenStreetMap German",
-            "Stamen Terrain",
-            "Stamen Toner Light",
+            "OpenStreetMap French",
+            "OpenTopoMap",
+            "TopPlusOpen WMTS",
+            "TopPlusOpen WMS",
             "OpenStreetMap WMS",
-            "OpenStreetMap TOPO WMS",
-            "SevenCs ChartServer"
         };
 
         public MapLayers()
         {
-            //BingMapsTileLayer.ApiKey = "...";
-
-            // Bing Maps TileLayers with tile URLs retrieved from the Imagery Metadata Service
-            // (see http://msdn.microsoft.com/en-us/library/ff701716.aspx).
-            // A Bing Maps API Key (see http://msdn.microsoft.com/en-us/library/ff428642.aspx) is required
+            // Add Bing Maps TileLayers with tile URLs retrieved from the Imagery Metadata Service
+            // (http://msdn.microsoft.com/en-us/library/ff701716.aspx).
+            // A Bing Maps API Key (http://msdn.microsoft.com/en-us/library/ff428642.aspx) is required
             // for using these layers and must be assigned to the static BingMapsTileLayer.ApiKey property.
 
             if (!string.IsNullOrEmpty(BingMapsTileLayer.ApiKey))

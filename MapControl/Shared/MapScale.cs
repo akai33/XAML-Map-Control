@@ -1,9 +1,16 @@
 ﻿// XAML Map Control - https://github.com/ClemensFischer/XAML-Map-Control
-// © 2018 Clemens Fischer
+// © 2021 Clemens Fischer
 // Licensed under the Microsoft Public License (Ms-PL)
 
 using System;
-#if WINDOWS_UWP
+using System.Globalization;
+#if WINUI
+using Windows.Foundation;
+using Microsoft.UI.Xaml;
+using Microsoft.UI.Xaml.Controls;
+using Microsoft.UI.Xaml.Media;
+using Microsoft.UI.Xaml.Shapes;
+#elif WINDOWS_UWP
 using Windows.Foundation;
 using Windows.UI.Xaml;
 using Windows.UI.Xaml.Controls;
@@ -37,13 +44,12 @@ namespace MapControl
 
         public MapScale()
         {
-            IsHitTestVisible = false;
             MinWidth = 100d;
 
-            line.SetBinding(Shape.StrokeProperty, GetBinding(StrokeProperty, nameof(Stroke)));
-            line.SetBinding(Shape.StrokeThicknessProperty, GetBinding(StrokeThicknessProperty, nameof(StrokeThickness)));
-#if WINDOWS_UWP
-            label.SetBinding(TextBlock.ForegroundProperty, GetBinding(ForegroundProperty, nameof(Foreground)));
+            line.SetBinding(Shape.StrokeProperty, this.GetBinding(nameof(Stroke)));
+            line.SetBinding(Shape.StrokeThicknessProperty, this.GetBinding(nameof(StrokeThickness)));
+#if WINUI || WINDOWS_UWP
+            label.SetBinding(TextBlock.ForegroundProperty, this.GetBinding(nameof(Foreground)));
 #endif
             Children.Add(line);
             Children.Add(label);
@@ -59,25 +65,17 @@ namespace MapControl
         {
             var size = new Size();
 
-            if (ParentMap != null && ParentMap.ScaleTransform.ScaleX > 0d)
+            if (ParentMap != null)
             {
-                var length = MinWidth / ParentMap.ScaleTransform.ScaleX;
+                var scale = ParentMap.GetScale(ParentMap.Center).X;
+                var length = MinWidth / scale;
                 var magnitude = Math.Pow(10d, Math.Floor(Math.Log10(length)));
 
-                if (length / magnitude < 2d)
-                {
-                    length = 2d * magnitude;
-                }
-                else if (length / magnitude < 5d)
-                {
-                    length = 5d * magnitude;
-                }
-                else
-                {
-                    length = 10d * magnitude;
-                }
+                length = length / magnitude < 2d ? 2d * magnitude
+                       : length / magnitude < 5d ? 5d * magnitude
+                       : 10d * magnitude;
 
-                size.Width = length * ParentMap.ScaleTransform.ScaleX + StrokeThickness + Padding.Left + Padding.Right;
+                size.Width = length * scale + StrokeThickness + Padding.Left + Padding.Right;
                 size.Height = 1.25 * FontSize + StrokeThickness + Padding.Top + Padding.Bottom;
 
                 var x1 = Padding.Left + StrokeThickness / 2d;
@@ -94,7 +92,9 @@ namespace MapControl
                 };
                 line.Measure(size);
 
-                label.Text = length >= 1000d ? string.Format("{0:0} km", length / 1000d) : string.Format("{0:0} m", length);
+                label.Text = length >= 1000d
+                    ? string.Format(CultureInfo.InvariantCulture, "{0:0} km", length / 1000d)
+                    : string.Format(CultureInfo.InvariantCulture, "{0:0} m", length);
                 label.Width = size.Width;
                 label.Height = size.Height;
                 label.Measure(size);

@@ -1,19 +1,23 @@
 ﻿// XAML Map Control - https://github.com/ClemensFischer/XAML-Map-Control
-// © 2018 Clemens Fischer
+// © 2021 Clemens Fischer
 // Licensed under the Microsoft Public License (Ms-PL)
 
-using Windows.Foundation;
+#if WINUI
+using Microsoft.UI;
+using Microsoft.UI.Xaml;
+using Microsoft.UI.Xaml.Media;
+#else
 using Windows.UI;
 using Windows.UI.Xaml;
 using Windows.UI.Xaml.Media;
+#endif
 
 namespace MapControl
 {
     public partial class MapBase
     {
         public static readonly DependencyProperty ForegroundProperty = DependencyProperty.Register(
-            nameof(Foreground), typeof(Brush), typeof(MapBase),
-            new PropertyMetadata(new SolidColorBrush(Colors.Black)));
+            nameof(Foreground), typeof(Brush), typeof(MapBase), new PropertyMetadata(new SolidColorBrush(Colors.Black)));
 
         public static readonly DependencyProperty CenterProperty = DependencyProperty.Register(
             nameof(Center), typeof(Location), typeof(MapBase),
@@ -39,36 +43,41 @@ namespace MapControl
             nameof(TargetHeading), typeof(double), typeof(MapBase),
             new PropertyMetadata(0d, (o, e) => ((MapBase)o).TargetHeadingPropertyChanged((double)e.NewValue)));
 
+        public static readonly DependencyProperty ViewScaleProperty = DependencyProperty.Register(
+            nameof(ViewScale), typeof(double), typeof(MapBase), new PropertyMetadata(0d));
+
         internal static readonly DependencyProperty CenterPointProperty = DependencyProperty.Register(
             "CenterPoint", typeof(Windows.Foundation.Point), typeof(MapBase),
-            new PropertyMetadata(new Windows.Foundation.Point(), (o, e) => ((MapBase)o).CenterPointPropertyChanged((Windows.Foundation.Point)e.NewValue)));
+            new PropertyMetadata(new Windows.Foundation.Point(), (o, e) =>
+            {
+                var center = (Windows.Foundation.Point)e.NewValue;
+                ((MapBase)o).CenterPointPropertyChanged(new Location(center.Y, center.X));
+            }));
 
         public MapBase()
         {
-            MapProjection = new WebMercatorProjection();
-            ScaleRotateTransform.Children.Add(ScaleTransform);
-            ScaleRotateTransform.Children.Add(RotateTransform);
-
             // set Background by Style to enable resetting by ClearValue in MapLayerPropertyChanged
             var style = new Style(typeof(MapBase));
-            style.Setters.Add(new Setter(BackgroundProperty, new SolidColorBrush(Colors.Transparent)));
+            style.Setters.Add(new Setter(BackgroundProperty, new SolidColorBrush(Colors.White)));
             Style = style;
 
-            SizeChanged += (s, e) =>
-            {
-                Clip = new RectangleGeometry
-                {
-                    Rect = new Rect(0d, 0d, e.NewSize.Width, e.NewSize.Height)
-                };
-
-                ResetTransformCenter();
-                UpdateTransform();
-            };
+            SizeChanged += OnSizeChanged;
         }
 
-        private void CenterPointPropertyChanged(Windows.Foundation.Point center)
+        private void OnSizeChanged(object sender, SizeChangedEventArgs e)
         {
-            CenterPointPropertyChanged(new Location(center.Y, center.X));
+            Clip = new RectangleGeometry
+            {
+                Rect = new Windows.Foundation.Rect(0d, 0d, e.NewSize.Width, e.NewSize.Height)
+            };
+
+            ResetTransformCenter();
+            UpdateTransform();
+        }
+
+        private void SetViewScale(double scale)
+        {
+            SetValue(ViewScaleProperty, scale);
         }
     }
 }

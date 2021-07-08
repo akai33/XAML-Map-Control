@@ -1,57 +1,51 @@
 ﻿// XAML Map Control - https://github.com/ClemensFischer/XAML-Map-Control
-// © 2018 Clemens Fischer
+// © 2021 Clemens Fischer
 // Licensed under the Microsoft Public License (Ms-PL)
 
 using System;
-#if !WINDOWS_UWP
+#if !WINUI && !WINDOWS_UWP
 using System.Windows;
 #endif
 
 namespace MapControl
 {
     /// <summary>
-    /// Transforms map coordinates according to the Gnomonic Projection.
+    /// Spherical Stereographic Projection.
     /// </summary>
     public class StereographicProjection : AzimuthalProjection
     {
         public StereographicProjection()
-            : this("AUTO2:97002") // GeoServer non-standard CRS ID
         {
+            CrsId = "AUTO2:97002"; // GeoServer non-standard CRS ID
         }
 
-        public StereographicProjection(string crsId)
+        public override Point LocationToMap(Location location)
         {
-            CrsId = crsId;
-        }
-
-        public override Point LocationToPoint(Location location)
-        {
-            if (location.Equals(ProjectionCenter))
+            if (location.Equals(Center))
             {
                 return new Point();
             }
 
-            double azimuth, distance;
+            GetAzimuthDistance(Center, location, out double azimuth, out double distance);
 
-            GetAzimuthDistance(ProjectionCenter, location, out azimuth, out distance);
-
-            var mapDistance = 2d * Wgs84EquatorialRadius * Math.Tan(distance / 2d);
+            var mapDistance = Math.Tan(distance / 2d) * 2d * Wgs84EquatorialRadius;
 
             return new Point(mapDistance * Math.Sin(azimuth), mapDistance * Math.Cos(azimuth));
         }
 
-        public override Location PointToLocation(Point point)
+        public override Location MapToLocation(Point point)
         {
             if (point.X == 0d && point.Y == 0d)
             {
-                return ProjectionCenter;
+                return new Location(Center.Latitude, Center.Longitude);
             }
 
             var azimuth = Math.Atan2(point.X, point.Y);
             var mapDistance = Math.Sqrt(point.X * point.X + point.Y * point.Y);
+
             var distance = 2d * Math.Atan(mapDistance / (2d * Wgs84EquatorialRadius));
 
-            return GetLocation(ProjectionCenter, azimuth, distance);
+            return GetLocation(Center, azimuth, distance);
         }
     }
 }

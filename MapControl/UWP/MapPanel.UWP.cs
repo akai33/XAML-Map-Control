@@ -1,19 +1,37 @@
 ﻿// XAML Map Control - https://github.com/ClemensFischer/XAML-Map-Control
-// © 2018 Clemens Fischer
+// © 2021 Clemens Fischer
 // Licensed under the Microsoft Public License (Ms-PL)
 
+#if WINUI
+using Microsoft.UI.Xaml;
+using Microsoft.UI.Xaml.Media;
+#else
 using Windows.UI.Xaml;
 using Windows.UI.Xaml.Media;
+#endif
 
 namespace MapControl
 {
     public partial class MapPanel
     {
+        public static readonly DependencyProperty LocationProperty = DependencyProperty.RegisterAttached(
+            "Location", typeof(Location), typeof(MapPanel),
+            new PropertyMetadata(null, (o, e) => (((FrameworkElement)o).Parent as MapPanel)?.InvalidateArrange()));
+
+        public static readonly DependencyProperty BoundingBoxProperty = DependencyProperty.RegisterAttached(
+            "BoundingBox", typeof(BoundingBox), typeof(MapPanel),
+            new PropertyMetadata(null, (o, e) => (((FrameworkElement)o).Parent as MapPanel)?.InvalidateArrange()));
+
         public static readonly DependencyProperty ParentMapProperty = DependencyProperty.RegisterAttached(
             "ParentMap", typeof(MapBase), typeof(MapPanel), new PropertyMetadata(null, ParentMapPropertyChanged));
 
-        private static readonly DependencyProperty ViewportPositionProperty = DependencyProperty.RegisterAttached(
-            "ViewportPosition", typeof(Point?), typeof(MapPanel), new PropertyMetadata(null));
+        private static readonly DependencyProperty ViewPositionProperty = DependencyProperty.RegisterAttached(
+            "ViewPosition", typeof(Point?), typeof(MapPanel), new PropertyMetadata(null));
+
+        public MapPanel()
+        {
+            InitMapElement(this);
+        }
 
         public static void InitMapElement(FrameworkElement element)
         {
@@ -23,7 +41,7 @@ namespace MapControl
             }
             else
             {
-                // Workaround for missing property value inheritance in Windows Runtime.
+                // Workaround for missing property value inheritance.
                 // Loaded and Unloaded handlers set and clear the ParentMap property value.
 
                 element.Loaded += (s, e) => GetParentMap(element);
@@ -45,17 +63,14 @@ namespace MapControl
 
         private static MapBase FindParentMap(FrameworkElement element)
         {
-            var parent = VisualTreeHelper.GetParent(element) as FrameworkElement;
-
-            return parent == null ? null
-                : ((parent as MapBase)
-                ?? (MapBase)element.GetValue(ParentMapProperty)
-                ?? FindParentMap(parent));
+            return VisualTreeHelper.GetParent(element) is FrameworkElement parent
+                ? ((parent as MapBase) ?? (MapBase)element.GetValue(ParentMapProperty) ?? FindParentMap(parent))
+                : null;
         }
 
-        private static void SetViewportPosition(FrameworkElement element, Point? viewportPosition)
+        private static void SetViewPosition(FrameworkElement element, Point? viewPosition)
         {
-            element.SetValue(ViewportPositionProperty, viewportPosition);
+            element.SetValue(ViewPositionProperty, viewPosition);
         }
     }
 }

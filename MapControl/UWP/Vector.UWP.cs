@@ -1,5 +1,5 @@
 ﻿// XAML Map Control - https://github.com/ClemensFischer/XAML-Map-Control
-// © 2018 Clemens Fischer
+// © 2021 Clemens Fischer
 // Licensed under the Microsoft Public License (Ms-PL)
 
 namespace MapControl
@@ -48,6 +48,16 @@ namespace MapControl
         public static Vector operator -(Vector v1, Vector v2)
         {
             return new Vector(v1.X - v2.X, v1.Y - v2.Y);
+        }
+
+        public static Vector operator *(double f, Vector v)
+        {
+            return new Vector(f * v.X, f * v.Y);
+        }
+
+        public static Vector operator *(Vector v, double f)
+        {
+            return new Vector(f * v.X, f * v.Y);
         }
 
         public static bool operator ==(Vector v1, Vector v2)

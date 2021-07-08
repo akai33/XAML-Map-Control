@@ -11,8 +11,8 @@
     <AssemblyName>MapControl.UWP</AssemblyName>
     <DefaultLanguage>en-US</DefaultLanguage>
     <TargetPlatformIdentifier>UAP</TargetPlatformIdentifier>
-    <TargetPlatformVersion Condition=" '$(TargetPlatformVersion)' == '' ">10.0.10586.0</TargetPlatformVersion>
-    <TargetPlatformMinVersion>10.0.10586.0</TargetPlatformMinVersion>
+    <TargetPlatformVersion Condition=" '$(TargetPlatformVersion)' == '' ">10.0.19041.0</TargetPlatformVersion>
+    <TargetPlatformMinVersion>10.0.17134.0</TargetPlatformMinVersion>
     <MinimumVisualStudioVersion>14</MinimumVisualStudioVersion>
     <FileAlignment>512</FileAlignment>
     <ProjectTypeGuids>{A5A43C5B-DE2A-4C0C-9213-0A381AF9435A};{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}</ProjectTypeGuids>
@@ -23,7 +23,7 @@
     <DebugType>full</DebugType>
     <Optimize>false</Optimize>
     <OutputPath>bin\Debug\</OutputPath>
-    <DefineConstants>DEBUG;TRACE;NETFX_CORE;WINDOWS_UWP</DefineConstants>
+    <DefineConstants>DEBUG;WINDOWS_UWP</DefineConstants>
     <ErrorReport>prompt</ErrorReport>
     <WarningLevel>4</WarningLevel>
   </PropertyGroup>
@@ -32,19 +32,26 @@
     <DebugType>none</DebugType>
     <Optimize>true</Optimize>
     <OutputPath>bin\Release\</OutputPath>
-    <DefineConstants>TRACE;NETFX_CORE;WINDOWS_UWP</DefineConstants>
+    <DefineConstants>WINDOWS_UWP</DefineConstants>
     <ErrorReport>prompt</ErrorReport>
     <WarningLevel>4</WarningLevel>
+    <GenerateLibraryLayout>true</GenerateLibraryLayout>
   </PropertyGroup>
   <PropertyGroup>
     <RestoreProjectStyle>PackageReference</RestoreProjectStyle>
   </PropertyGroup>
   <ItemGroup>
+    <Compile Include="..\Shared\AutoEquirectangularProjection.cs">
+      <Link>AutoEquirectangularProjection.cs</Link>
+    </Compile>
     <Compile Include="..\Shared\AzimuthalEquidistantProjection.cs">
       <Link>AzimuthalEquidistantProjection.cs</Link>
     </Compile>
     <Compile Include="..\Shared\AzimuthalProjection.cs">
       <Link>AzimuthalProjection.cs</Link>
+    </Compile>
+    <Compile Include="..\Shared\BindingHelper.cs">
+      <Link>BindingHelper.cs</Link>
     </Compile>
     <Compile Include="..\Shared\BingMapsTileLayer.cs">
       <Link>BingMapsTileLayer.cs</Link>
@@ -54,6 +61,9 @@
     </Compile>
     <Compile Include="..\Shared\BoundingBox.cs">
       <Link>BoundingBox.cs</Link>
+    </Compile>
+    <Compile Include="..\Shared\BoundingBoxTileSource.cs">
+      <Link>BoundingBoxTileSource.cs</Link>
     </Compile>
     <Compile Include="..\Shared\CenteredBoundingBox.cs">
       <Link>CenteredBoundingBox.cs</Link>
@@ -67,6 +77,9 @@
     <Compile Include="..\Shared\HyperlinkText.cs">
       <Link>HyperlinkText.cs</Link>
     </Compile>
+    <Compile Include="..\Shared\ImageFileCache.cs">
+      <Link>ImageFileCache.cs</Link>
+    </Compile>
     <Compile Include="..\Shared\ImageLoader.cs">
       <Link>ImageLoader.cs</Link>
     </Compile>
@@ -78,9 +91,6 @@
     </Compile>
     <Compile Include="..\Shared\LocationCollection.cs">
       <Link>LocationCollection.cs</Link>
-    </Compile>
-    <Compile Include="..\Shared\LocationEx.cs">
-      <Link>LocationEx.cs</Link>
     </Compile>
     <Compile Include="..\Shared\MapBase.cs">
       <Link>MapBase.cs</Link>
@@ -100,6 +110,9 @@
     <Compile Include="..\Shared\MapPanel.cs">
       <Link>MapPanel.cs</Link>
     </Compile>
+    <Compile Include="..\Shared\MapPath.cs">
+      <Link>MapPath.cs</Link>
+    </Compile>
     <Compile Include="..\Shared\MapPolygon.cs">
       <Link>MapPolygon.cs</Link>
     </Compile>
@@ -112,17 +125,14 @@
     <Compile Include="..\Shared\MapScale.cs">
       <Link>MapScale.cs</Link>
     </Compile>
-    <Compile Include="..\Shared\MapShape.cs">
-      <Link>MapShape.cs</Link>
-    </Compile>
     <Compile Include="..\Shared\MapTileLayer.cs">
       <Link>MapTileLayer.cs</Link>
     </Compile>
+    <Compile Include="..\Shared\MapTileLayerBase.cs">
+      <Link>MapTileLayerBase.cs</Link>
+    </Compile>
     <Compile Include="..\Shared\OrthographicProjection.cs">
       <Link>OrthographicProjection.cs</Link>
-    </Compile>
-    <Compile Include="..\Shared\Pushpin.cs">
-      <Link>Pushpin.cs</Link>
     </Compile>
     <Compile Include="..\Shared\StereographicProjection.cs">
       <Link>StereographicProjection.cs</Link>
@@ -130,11 +140,11 @@
     <Compile Include="..\Shared\Tile.cs">
       <Link>Tile.cs</Link>
     </Compile>
-    <Compile Include="..\Shared\TileGrid.cs">
-      <Link>TileGrid.cs</Link>
-    </Compile>
     <Compile Include="..\Shared\TileImageLoader.cs">
       <Link>TileImageLoader.cs</Link>
+    </Compile>
+    <Compile Include="..\Shared\TileMatrix.cs">
+      <Link>TileMatrix.cs</Link>
     </Compile>
     <Compile Include="..\Shared\TileSource.cs">
       <Link>TileSource.cs</Link>
@@ -142,27 +152,52 @@
     <Compile Include="..\Shared\ViewportChangedEventArgs.cs">
       <Link>ViewportChangedEventArgs.cs</Link>
     </Compile>
+    <Compile Include="..\Shared\ViewRect.cs">
+      <Link>ViewRect.cs</Link>
+    </Compile>
+    <Compile Include="..\Shared\ViewTransform.cs">
+      <Link>ViewTransform.cs</Link>
+    </Compile>
     <Compile Include="..\Shared\WebMercatorProjection.cs">
       <Link>WebMercatorProjection.cs</Link>
     </Compile>
     <Compile Include="..\Shared\WmsImageLayer.cs">
       <Link>WmsImageLayer.cs</Link>
     </Compile>
+    <Compile Include="..\Shared\WmtsCapabilities.cs">
+      <Link>WmtsCapabilities.cs</Link>
+    </Compile>
+    <Compile Include="..\Shared\WmtsTileLayer.cs">
+      <Link>WmtsTileLayer.cs</Link>
+    </Compile>
+    <Compile Include="..\Shared\WmtsTileMatrix.cs">
+      <Link>WmtsTileMatrix.cs</Link>
+    </Compile>
+    <Compile Include="..\Shared\WmtsTileMatrixLayer.cs">
+      <Link>WmtsTileMatrixLayer.cs</Link>
+    </Compile>
+    <Compile Include="..\Shared\WmtsTileMatrixSet.cs">
+      <Link>WmtsTileMatrixSet.cs</Link>
+    </Compile>
+    <Compile Include="..\Shared\WmtsTileSource.cs">
+      <Link>WmtsTileSource.cs</Link>
+    </Compile>
     <Compile Include="..\Shared\WorldMercatorProjection.cs">
       <Link>WorldMercatorProjection.cs</Link>
     </Compile>
-    <Compile Include="Extensions.UWP.cs" />
-    <Compile Include="ImageCache.UWP.cs" />
+    <Compile Include="Animatable.UWP.cs" />
     <Compile Include="ImageFileCache.UWP.cs" />
     <Compile Include="Map.UWP.cs" />
     <Compile Include="MapBase.UWP.cs" />
     <Compile Include="MapGraticule.UWP.cs" />
+    <Compile Include="MapItemsControl.UWP.cs" />
     <Compile Include="MapOverlay.UWP.cs" />
     <Compile Include="MapPanel.UWP.cs" />
-    <Compile Include="MapShape.UWP.cs" />
+    <Compile Include="MapPath.UWP.cs" />
     <Compile Include="Matrix.UWP.cs" />
     <Compile Include="Point.UWP.cs" />
     <Compile Include="Properties\AssemblyInfo.cs" />
+    <Compile Include="MapContentControl.UWP.cs" />
     <Compile Include="Tile.UWP.cs" />
     <Compile Include="TileImageLoader.UWP.cs" />
     <Compile Include="ImageLoader.UWP.cs" />
@@ -171,7 +206,7 @@
   </ItemGroup>
   <ItemGroup>
     <PackageReference Include="Microsoft.NETCore.UniversalWindowsPlatform">
-      <Version>6.1.7</Version>
+      <Version>6.2.12</Version>
     </PackageReference>
   </ItemGroup>
   <ItemGroup>
@@ -196,11 +231,4 @@
     <AssemblyOriginatorKeyFile>..\..\MapControl.snk</AssemblyOriginatorKeyFile>
   </PropertyGroup>
   <Import Project="$(MSBuildExtensionsPath)\Microsoft\WindowsXaml\v$(VisualStudioVersion)\Microsoft.Windows.UI.Xaml.CSharp.targets" />
-  <!-- To modify your build process, add your task inside one of the targets below and uncomment it. 
-       Other similar extension points exist, see Microsoft.Common.targets.
-  <Target Name="BeforeBuild">
-  </Target>
-  <Target Name="AfterBuild">
-  </Target>
-  -->
 </Project>

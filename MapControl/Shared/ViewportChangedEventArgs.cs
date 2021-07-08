@@ -1,5 +1,5 @@
 ﻿// XAML Map Control - https://github.com/ClemensFischer/XAML-Map-Control
-// © 2018 Clemens Fischer
+// © 2021 Clemens Fischer
 // Licensed under the Microsoft Public License (Ms-PL)
 
 using System;
@@ -16,7 +16,7 @@ namespace MapControl
 
         /// <summary>
         /// Indicates if the map projection has changed, i.e. if a MapTileLayer or MapImageLayer should
-        /// be updated immediately, or MapShape Data in cartesian map coordinates should be recalculated.
+        /// be updated immediately, or MapPath Data in cartesian map coordinates should be recalculated.
         /// </summary>
         public bool ProjectionChanged { get; }
 

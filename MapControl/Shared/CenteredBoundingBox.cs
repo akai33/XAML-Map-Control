@@ -1,26 +1,24 @@
 ﻿// XAML Map Control - https://github.com/ClemensFischer/XAML-Map-Control
-// © 2018 Clemens Fischer
+// © 2021 Clemens Fischer
 // Licensed under the Microsoft Public License (Ms-PL)
+
+using System;
 
 namespace MapControl
 {
     public class CenteredBoundingBox : BoundingBox
     {
-        private readonly Location center;
         private readonly double width;
         private readonly double height;
 
         public CenteredBoundingBox(Location center, double width, double height)
         {
-            this.center = center;
-            this.width = width;
-            this.height = height;
+            Center = center;
+            this.width = Math.Max(width, 0d);
+            this.height = Math.Max(height, 0d);
         }
 
-        public Location Center
-        {
-            get { return center; }
-        }
+        public Location Center { get; private set; }
 
         public override double Width
         {
@@ -34,7 +32,7 @@ namespace MapControl
 
         public override BoundingBox Clone()
         {
-            return new CenteredBoundingBox(center, width, height);
+            return new CenteredBoundingBox(Center, Width, Height);
         }
     }
 }

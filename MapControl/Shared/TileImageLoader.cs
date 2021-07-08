@@ -1,13 +1,14 @@
 ﻿// XAML Map Control - https://github.com/ClemensFischer/XAML-Map-Control
-// © 2018 Clemens Fischer
+// © 2021 Clemens Fischer
 // Licensed under the Microsoft Public License (Ms-PL)
 
 using System;
 using System.Collections.Concurrent;
+using System.Collections.Generic;
 using System.Diagnostics;
+using System.Globalization;
 using System.IO;
 using System.Linq;
-using System.Threading;
 using System.Threading.Tasks;
 
 namespace MapControl
@@ -23,133 +24,110 @@ namespace MapControl
         public static int MaxLoadTasks { get; set; } = 4;
 
         /// <summary>
-        /// Minimum expiration time for cached tile images. The default value is one hour.
-        /// </summary>
-        public static TimeSpan MinCacheExpiration { get; set; } = TimeSpan.FromHours(1);
-
-        /// <summary>
-        /// Maximum expiration time for cached tile images. The default value is one week.
-        /// </summary>
-        public static TimeSpan MaxCacheExpiration { get; set; } = TimeSpan.FromDays(7);
-
-        /// <summary>
         /// Default expiration time for cached tile images. Used when no expiration time
         /// was transmitted on download. The default value is one day.
         /// </summary>
         public static TimeSpan DefaultCacheExpiration { get; set; } = TimeSpan.FromDays(1);
 
         /// <summary>
-        /// Format string for creating cache keys from the SourceName property of a TileSource,
-        /// the ZoomLevel, XIndex, and Y properties of a Tile, and the image file extension.
-        /// The default value is "{0};{1};{2};{3}{4}".
+        /// Maximum expiration time for cached tile images. A transmitted expiration time
+        /// that exceeds this value is ignored. The default value is ten days.
         /// </summary>
-        public static string CacheKeyFormat { get; set; } = "{0};{1};{2};{3}{4}";
-
-        private readonly ConcurrentStack<Tile> pendingTiles = new ConcurrentStack<Tile>();
-        private int taskCount;
+        public static TimeSpan MaxCacheExpiration { get; set; } = TimeSpan.FromDays(10);
 
         /// <summary>
-        /// Loads all pending tiles from the Tiles collection of a MapTileLayer by running up to MaxLoadTasks parallel Tasks.
-        /// If the TileSource's SourceName is non-empty and its UriFormat starts with "http", tile images are cached in the
-        /// TileImageLoader's Cache.
+        /// The current TileSource, passed to the most recent LoadTiles call.
         /// </summary>
-        public void LoadTilesAsync(MapTileLayer tileLayer)
+        public TileSource TileSource { get; private set; }
+
+        private ConcurrentStack<Tile> pendingTiles;
+
+        /// <summary>
+        /// Loads all pending tiles from the tiles collection.
+        /// If tileSource.UriFormat starts with "http" and cacheName is a non-empty string,
+        /// tile images will be cached in the TileImageLoader's Cache - if that is not null.
+        /// </summary>
+        public Task LoadTiles(IEnumerable<Tile> tiles, TileSource tileSource, string cacheName)
         {
-            pendingTiles.Clear();
+            pendingTiles?.Clear(); // stop download from current stack
 
-            var tileSource = tileLayer.TileSource;
-            var sourceName = tileLayer.SourceName;
-            var tiles = tileLayer.Tiles.Where(t => t.Pending);
+            pendingTiles = new ConcurrentStack<Tile>(tiles.Where(tile => tile.Pending).Reverse());
 
-            if (tileSource != null && tiles.Any())
+            TileSource = tileSource;
+
+            if (tileSource == null || pendingTiles.IsEmpty)
             {
-                pendingTiles.PushRange(tiles.Reverse().ToArray());
-
-                Func<Tile, Task> loadFunc;
-
-                if (Cache != null && !string.IsNullOrEmpty(sourceName) &&
-                    tileSource.UriFormat != null && tileSource.UriFormat.StartsWith("http"))
-                {
-                    loadFunc = tile => LoadCachedTileImageAsync(tile, tileSource, sourceName);
-                }
-                else
-                {
-                    loadFunc = tile => LoadTileImageAsync(tile, tileSource);
-                }
-
-                var newTasks = Math.Min(pendingTiles.Count, MaxLoadTasks) - taskCount;
-
-                while (--newTasks >= 0)
-                {
-                    Interlocked.Increment(ref taskCount);
-
-                    var task = Task.Run(() => LoadTilesAsync(loadFunc)); // do not await
-                }
-
-                //Debug.WriteLine("{0}: {1} tasks", Environment.CurrentManagedThreadId, taskCount);
+                return Task.CompletedTask;
             }
+
+            if (Cache == null || tileSource.UriFormat == null || !tileSource.UriFormat.StartsWith("http"))
+            {
+                cacheName = null; // no tile caching
+            }
+
+            var tasks = Enumerable
+                .Range(0, Math.Min(pendingTiles.Count, MaxLoadTasks))
+                .Select(_ => Task.Run(() => LoadPendingTilesAsync(pendingTiles, tileSource, cacheName)));
+
+            return Task.WhenAll(tasks);
         }
 
-        private async Task LoadTilesAsync(Func<Tile, Task> loadTileImageFunc)
+        private static async Task LoadPendingTilesAsync(ConcurrentStack<Tile> pendingTiles, TileSource tileSource, string cacheName)
         {
-            Tile tile;
-
-            while (pendingTiles.TryPop(out tile))
+            while (pendingTiles.TryPop(out var tile))
             {
                 tile.Pending = false;
 
                 try
                 {
-                    await loadTileImageFunc(tile);
+                    await LoadTileAsync(tile, tileSource, cacheName).ConfigureAwait(false);
                 }
                 catch (Exception ex)
                 {
-                    Debug.WriteLine("TileImageLoader: {0}/{1}/{2}: {3}", tile.ZoomLevel, tile.XIndex, tile.Y, ex.Message);
+                    Debug.WriteLine($"TileImageLoader: {tile.ZoomLevel}/{tile.XIndex}/{tile.Y}: {ex.Message}");
                 }
             }
-
-            Interlocked.Decrement(ref taskCount);
-            //Debug.WriteLine("{0}: {1} tasks", Environment.CurrentManagedThreadId, taskCount);
         }
 
-        private async Task LoadCachedTileImageAsync(Tile tile, TileSource tileSource, string sourceName)
+        private static Task LoadTileAsync(Tile tile, TileSource tileSource, string cacheName)
         {
+            if (string.IsNullOrEmpty(cacheName))
+            {
+                return LoadTileAsync(tile, tileSource);
+            }
+
             var uri = tileSource.GetUri(tile.XIndex, tile.Y, tile.ZoomLevel);
 
-            if (uri != null)
+            if (uri == null)
             {
-                var extension = Path.GetExtension(uri.LocalPath);
-
-                if (string.IsNullOrEmpty(extension) || extension == ".jpeg")
-                {
-                    extension = ".jpg";
-                }
-
-                var cacheKey = string.Format(CacheKeyFormat, sourceName, tile.ZoomLevel, tile.XIndex, tile.Y, extension);
-
-                await LoadCachedTileImageAsync(tile, uri, cacheKey);
+                return Task.CompletedTask;
             }
+
+            var extension = Path.GetExtension(uri.LocalPath);
+
+            if (string.IsNullOrEmpty(extension) || extension == ".jpeg")
+            {
+                extension = ".jpg";
+            }
+
+            var cacheKey = string.Format(CultureInfo.InvariantCulture,
+                "{0}/{1}/{2}/{3}{4}", cacheName, tile.ZoomLevel, tile.XIndex, tile.Y, extension);
+
+            return LoadCachedTileAsync(tile, uri, cacheKey);
         }
 
         private static DateTime GetExpiration(TimeSpan? maxAge)
         {
-            var expiration = DefaultCacheExpiration;
-
-            if (maxAge.HasValue)
+            if (!maxAge.HasValue)
             {
-                expiration = maxAge.Value;
-
-                if (expiration < MinCacheExpiration)
-                {
-                    expiration = MinCacheExpiration;
-                }
-                else if (expiration > MaxCacheExpiration)
-                {
-                    expiration = MaxCacheExpiration;
-                }
+                maxAge = DefaultCacheExpiration;
+            }
+            else if (maxAge.Value > MaxCacheExpiration)
+            {
+                maxAge = MaxCacheExpiration;
             }
 
-            return DateTime.UtcNow.Add(expiration);
+            return DateTime.UtcNow.Add(maxAge.Value);
         }
     }
 }

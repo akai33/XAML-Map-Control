@@ -1,54 +1,61 @@
 ﻿// XAML Map Control - https://github.com/ClemensFischer/XAML-Map-Control
-// © 2018 Clemens Fischer
+// © 2021 Clemens Fischer
 // Licensed under the Microsoft Public License (Ms-PL)
 
 using System;
-#if !WINDOWS_UWP
+#if !WINUI && !WINDOWS_UWP
 using System.Windows;
 #endif
 
 namespace MapControl
 {
     /// <summary>
-    /// Transforms map coordinates according to the Web (or Pseudo) Mercator Projection, EPSG:3857.
-    /// Longitude values are transformed linearly to X values in meters, by multiplying with TrueScale.
-    /// Latitude values in the interval [-MaxLatitude .. MaxLatitude] are transformed to Y values in meters
-    /// in the interval [-R*pi .. R*pi], R=Wgs84EquatorialRadius.
+    /// Spherical Mercator Projection, EPSG:3857.
+    /// See "Map Projections - A Working Manual" (https://pubs.usgs.gov/pp/1395/report.pdf), p.41-44.
     /// </summary>
     public class WebMercatorProjection : MapProjection
     {
+        private static readonly double maxLatitude = YToLatitude(180d);
+
         public WebMercatorProjection()
-            : this("EPSG:3857")
         {
+            CrsId = "EPSG:3857";
         }
 
-        public WebMercatorProjection(string crsId)
+        public override bool IsNormalCylindrical
         {
-            CrsId = crsId;
-            IsCylindrical = true;
-            IsWebMercator = true;
-            MaxLatitude = YToLatitude(180d);
+            get { return true; }
         }
 
-        public override Vector GetMapScale(Location location)
+        public override bool IsWebMercator
         {
-            var scale = ViewportScale / Math.Cos(location.Latitude * Math.PI / 180d);
-
-            return new Vector(scale, scale);
+            get { return true; }
         }
 
-        public override Point LocationToPoint(Location location)
+        public override double MaxLatitude
+        {
+            get { return maxLatitude; }
+        }
+
+        public override Vector GetRelativeScale(Location location)
+        {
+            var k = 1d / Math.Cos(location.Latitude * Math.PI / 180d); // p.44 (7-3)
+
+            return new Vector(k, k);
+        }
+
+        public override Point LocationToMap(Location location)
         {
             return new Point(
-                TrueScale * location.Longitude,
-                TrueScale * LatitudeToY(location.Latitude));
+                Wgs84MetersPerDegree * location.Longitude,
+                Wgs84MetersPerDegree * LatitudeToY(location.Latitude));
         }
 
-        public override Location PointToLocation(Point point)
+        public override Location MapToLocation(Point point)
         {
             return new Location(
-                YToLatitude(point.Y / TrueScale),
-                point.X / TrueScale);
+                YToLatitude(point.Y / Wgs84MetersPerDegree),
+                point.X / Wgs84MetersPerDegree);
         }
 
         public static double LatitudeToY(double latitude)
@@ -63,12 +70,12 @@ namespace MapControl
                 return double.PositiveInfinity;
             }
 
-            return Math.Log(Math.Tan((latitude + 90d) * Math.PI / 360d)) / Math.PI * 180d;
+            return Math.Log(Math.Tan((latitude + 90d) * Math.PI / 360d)) * 180d / Math.PI;
         }
 
         public static double YToLatitude(double y)
         {
-            return 90d - Math.Atan(Math.Exp(-y * Math.PI / 180d)) / Math.PI * 360d;
+            return 90d - Math.Atan(Math.Exp(-y * Math.PI / 180d)) * 360d / Math.PI;
         }
     }
 }

@@ -1,47 +1,60 @@
 ﻿// XAML Map Control - https://github.com/ClemensFischer/XAML-Map-Control
-// © 2018 Clemens Fischer
+// © 2021 Clemens Fischer
 // Licensed under the Microsoft Public License (Ms-PL)
 
 using System;
-#if !WINDOWS_UWP
+using System.Globalization;
+#if WINUI || WINDOWS_UWP
+using Windows.Foundation;
+#else
 using System.Windows;
 #endif
 
 namespace MapControl
 {
     /// <summary>
-    /// Transforms map coordinates according to the Equirectangular Projection.
-    /// Longitude and Latitude values are transformed identically to X and Y.
+    /// Equirectangular Projection.
+    /// Longitude and Latitude values are transformed linearly to X and Y values in meters.
     /// </summary>
     public class EquirectangularProjection : MapProjection
     {
         public EquirectangularProjection()
-            : this("EPSG:4326")
         {
+            CrsId = "EPSG:4326";
         }
 
-        public EquirectangularProjection(string crsId)
+        public override bool IsNormalCylindrical
         {
-            CrsId = crsId;
-            IsCylindrical = true;
-            TrueScale = 1;
+            get { return true; }
         }
 
-        public override Vector GetMapScale(Location location)
+        public override Vector GetRelativeScale(Location location)
         {
             return new Vector(
-                ViewportScale / (MetersPerDegree * Math.Cos(location.Latitude * Math.PI / 180d)),
-                ViewportScale / MetersPerDegree);
+                1d / Math.Cos(location.Latitude * Math.PI / 180d),
+                1d);
         }
 
-        public override Point LocationToPoint(Location location)
+        public override Point LocationToMap(Location location)
         {
-            return new Point(location.Longitude, location.Latitude);
+            return new Point(
+                Wgs84MetersPerDegree * location.Longitude,
+                Wgs84MetersPerDegree * location.Latitude);
         }
 
-        public override Location PointToLocation(Point point)
+        public override Location MapToLocation(Point point)
         {
-            return new Location(point.Y, point.X);
+            return new Location(
+                point.Y / Wgs84MetersPerDegree,
+                point.X / Wgs84MetersPerDegree);
+        }
+
+        public override string GetBboxValue(Rect rect)
+        {
+            return string.Format(CultureInfo.InvariantCulture,
+                CrsId == "CRS:84" ? "{0},{1},{2},{3}" : "{1},{0},{3},{2}",
+                rect.X / Wgs84MetersPerDegree, rect.Y / Wgs84MetersPerDegree,
+                (rect.X + rect.Width) / Wgs84MetersPerDegree, (rect.Y + rect.Height) / Wgs84MetersPerDegree);
         }
     }
 }

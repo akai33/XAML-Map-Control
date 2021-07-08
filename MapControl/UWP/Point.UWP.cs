@@ -1,9 +1,12 @@
 ﻿// XAML Map Control - https://github.com/ClemensFischer/XAML-Map-Control
-// © 2018 Clemens Fischer
+// © 2021 Clemens Fischer
 // Licensed under the Microsoft Public License (Ms-PL)
 
 namespace MapControl
 {
+    /// <summary>
+    /// Replaces Windows.Foundation.Point to achieve necessary floating point precision.
+    /// </summary>
     public struct Point
     {
         public double X { get; set; }

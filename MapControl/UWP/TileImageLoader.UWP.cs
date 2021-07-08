@@ -1,102 +1,90 @@
 ﻿// XAML Map Control - https://github.com/ClemensFischer/XAML-Map-Control
-// © 2018 Clemens Fischer
+// © 2021 Clemens Fischer
 // Licensed under the Microsoft Public License (Ms-PL)
 
 using System;
 using System.Threading.Tasks;
-using Windows.Storage;
-using Windows.Storage.Streams;
 using Windows.UI.Core;
+using Windows.UI.Xaml.Media;
 
 namespace MapControl
 {
+    namespace Caching
+    {
+        public interface IImageCache
+        {
+            Task<Tuple<byte[], DateTime>> GetAsync(string key);
+
+            Task SetAsync(string key, byte[] buffer, DateTime expiration);
+        }
+    }
+
     public partial class TileImageLoader
     {
         /// <summary>
-        /// Default StorageFolder where an IImageCache instance may save cached data,
-        /// i.e. ApplicationData.Current.TemporaryFolder.
+        /// Default folder path where an IImageCache instance may save cached data,
+        /// i.e. Windows.Storage.ApplicationData.Current.TemporaryFolder.Path.
         /// </summary>
-        public static StorageFolder DefaultCacheFolder
+        public static string DefaultCacheFolder
         {
-            get { return ApplicationData.Current.TemporaryFolder; }
+            get { return Windows.Storage.ApplicationData.Current.TemporaryFolder.Path; }
         }
 
         /// <summary>
-        /// The IImageCache implementation used to cache tile images. The default is null.
+        /// An IImageCache implementation used to cache tile images.
         /// </summary>
         public static Caching.IImageCache Cache { get; set; }
 
-        private async Task LoadCachedTileImageAsync(Tile tile, Uri uri, string cacheKey)
+
+        private static async Task LoadCachedTileAsync(Tile tile, Uri uri, string cacheKey)
         {
-            var cacheItem = await Cache.GetAsync(cacheKey);
-            var cacheBuffer = cacheItem?.Buffer;
+            var cacheItem = await Cache.GetAsync(cacheKey).ConfigureAwait(false);
+            var buffer = cacheItem?.Item1;
 
-            if (cacheBuffer == null || cacheItem.Expiration < DateTime.UtcNow)
+            if (cacheItem == null || cacheItem.Item2 < DateTime.UtcNow)
             {
-                var result = await ImageLoader.LoadHttpBufferAsync(uri);
+                var response = await ImageLoader.GetHttpResponseAsync(uri).ConfigureAwait(false);
 
-                if (result != null) // download succeeded
+                if (response != null) // download succeeded
                 {
-                    cacheBuffer = null; // discard cached image
+                    buffer = response.Buffer; // may be null or empty when no tile available, but still be cached
 
-                    if (result.Item1 != null) // tile image available
-                    {
-                        await LoadTileImageAsync(tile, result.Item1);
-                        await Cache.SetAsync(cacheKey, result.Item1, GetExpiration(result.Item2));
-                    }
+                    await Cache.SetAsync(cacheKey, buffer, GetExpiration(response.MaxAge)).ConfigureAwait(false);
                 }
             }
+            //else System.Diagnostics.Debug.WriteLine($"Cached: {cacheKey}");
 
-            if (cacheBuffer != null)
+            if (buffer != null && buffer.Length > 0)
             {
-                await LoadTileImageAsync(tile, cacheBuffer);
+                await SetTileImageAsync(tile, () => ImageLoader.LoadImageAsync(buffer)).ConfigureAwait(false);
             }
         }
 
-        private async Task LoadTileImageAsync(Tile tile, IBuffer buffer)
+        private static Task LoadTileAsync(Tile tile, TileSource tileSource)
         {
-            var tcs = new TaskCompletionSource<object>();
-
-            using (var stream = new InMemoryRandomAccessStream())
-            {
-                await stream.WriteAsync(buffer);
-                stream.Seek(0);
-
-                await tile.Image.Dispatcher.RunAsync(CoreDispatcherPriority.Low, async () =>
-                {
-                    try
-                    {
-                        tile.SetImage(await ImageLoader.LoadImageAsync(stream));
-                        tcs.SetResult(null);
-                    }
-                    catch (Exception ex)
-                    {
-                        tcs.SetException(ex);
-                    }
-                });
-            }
-
-            await tcs.Task;
+            return SetTileImageAsync(tile, () => tileSource.LoadImageAsync(tile.XIndex, tile.Y, tile.ZoomLevel));
         }
 
-        private async Task LoadTileImageAsync(Tile tile, TileSource tileSource)
+        public static async Task SetTileImageAsync(Tile tile, Func<Task<ImageSource>> loadImageFunc)
         {
             var tcs = new TaskCompletionSource<object>();
 
-            await tile.Image.Dispatcher.RunAsync(CoreDispatcherPriority.Low, async () =>
+            async void callback()
             {
                 try
                 {
-                    tile.SetImage(await tileSource.LoadImageAsync(tile.XIndex, tile.Y, tile.ZoomLevel));
-                    tcs.SetResult(null);
+                    tile.SetImage(await loadImageFunc());
+                    tcs.TrySetResult(null);
                 }
                 catch (Exception ex)
                 {
-                    tcs.SetException(ex);
+                    tcs.TrySetException(ex);
                 }
-            });
+            }
 
-            await tcs.Task;
+            await tile.Image.Dispatcher.RunAsync(CoreDispatcherPriority.Low, callback);
+
+            await tcs.Task.ConfigureAwait(false);
         }
     }
 }

@@ -1,61 +1,61 @@
 ﻿// XAML Map Control - https://github.com/ClemensFischer/XAML-Map-Control
-// © 2018 Clemens Fischer
+// © 2021 Clemens Fischer
 // Licensed under the Microsoft Public License (Ms-PL)
 
 using System;
-#if !WINDOWS_UWP
+#if !WINUI && !WINDOWS_UWP
 using System.Windows;
 #endif
 
 namespace MapControl
 {
     /// <summary>
-    /// Transforms map coordinates according to the "World Mercator" Projection, EPSG:3395.
-    /// Longitude values are transformed linearly to X values in meters, by multiplying with TrueScale.
-    /// Latitude values are transformed according to the elliptical versions of the Mercator equations,
-    /// as shown in "Map Projections - A Working Manual" (https://pubs.usgs.gov/pp/1395/report.pdf), p.44.
+    /// Elliptical Mercator Projection, EPSG:3395.
+    /// See "Map Projections - A Working Manual" (https://pubs.usgs.gov/pp/1395/report.pdf), p.44-45.
     /// </summary>
     public class WorldMercatorProjection : MapProjection
     {
-        public const double Wgs84Flattening = 1d / 298.257223563;
-        public static readonly double Wgs84Eccentricity = Math.Sqrt((2d - Wgs84Flattening) * Wgs84Flattening);
+        public static double ConvergenceTolerance { get; set; } = 1e-6;
+        public static int MaxIterations { get; set; } = 10;
 
-        public static double MinLatitudeDelta = 1d / Wgs84EquatorialRadius; // corresponds to 1 meter
-        public static int MaxIterations = 10;
+        private static readonly double maxLatitude = YToLatitude(180d);
 
         public WorldMercatorProjection()
-            : this("EPSG:3395")
         {
+            CrsId = "EPSG:3395";
         }
 
-        public WorldMercatorProjection(string crsId)
+        public override bool IsNormalCylindrical
         {
-            CrsId = crsId;
-            IsCylindrical = true;
-            MaxLatitude = YToLatitude(180d);
+            get { return true; }
         }
 
-        public override Vector GetMapScale(Location location)
+        public override double MaxLatitude
+        {
+            get { return maxLatitude; }
+        }
+
+        public override Vector GetRelativeScale(Location location)
         {
             var lat = location.Latitude * Math.PI / 180d;
             var eSinLat = Wgs84Eccentricity * Math.Sin(lat);
-            var scale = ViewportScale * Math.Sqrt(1d - eSinLat * eSinLat) / Math.Cos(lat);
+            var k = Math.Sqrt(1d - eSinLat * eSinLat) / Math.Cos(lat); // p.44 (7-8)
 
-            return new Vector(scale, scale);
+            return new Vector(k, k);
         }
 
-        public override Point LocationToPoint(Location location)
+        public override Point LocationToMap(Location location)
         {
             return new Point(
-                TrueScale * location.Longitude,
-                TrueScale * LatitudeToY(location.Latitude));
+                Wgs84MetersPerDegree * location.Longitude,
+                Wgs84MetersPerDegree * LatitudeToY(location.Latitude));
         }
 
-        public override Location PointToLocation(Point point)
+        public override Location MapToLocation(Point point)
         {
             return new Location(
-                YToLatitude(point.Y / TrueScale),
-                point.X / TrueScale);
+                YToLatitude(point.Y / Wgs84MetersPerDegree),
+                point.X / Wgs84MetersPerDegree);
         }
 
         public static double LatitudeToY(double latitude)
@@ -72,24 +72,23 @@ namespace MapControl
 
             var lat = latitude * Math.PI / 180d;
 
-            return Math.Log(Math.Tan(lat / 2d + Math.PI / 4d) * ConformalFactor(lat)) / Math.PI * 180d;
+            return Math.Log(Math.Tan(lat / 2d + Math.PI / 4d) * ConformalFactor(lat)) * 180d / Math.PI; // p.44 (7-7)
         }
 
         public static double YToLatitude(double y)
         {
-            var t = Math.Exp(-y * Math.PI / 180d);
-            var lat = Math.PI / 2d - 2d * Math.Atan(t);
-            var latDelta = 1d;
+            var t = Math.Exp(-y * Math.PI / 180d); // p.44 (7-10)
+            var lat = Math.PI / 2d - 2d * Math.Atan(t); // p.44 (7-11)
+            var relChange = 1d;
 
-            for (int i = 0; i < MaxIterations && latDelta > MinLatitudeDelta; i++)
+            for (var i = 0; i < MaxIterations && relChange > ConvergenceTolerance; i++)
             {
-                var newLat = Math.PI / 2d - 2d * Math.Atan(t * ConformalFactor(lat));
-
-                latDelta = Math.Abs(newLat - lat);
+                var newLat = Math.PI / 2d - 2d * Math.Atan(t * ConformalFactor(lat)); // p.44 (7-9)
+                relChange = Math.Abs(1d - newLat / lat);
                 lat = newLat;
             }
 
-            return lat / Math.PI * 180d;
+            return lat * 180d / Math.PI;
         }
 
         private static double ConformalFactor(double lat)

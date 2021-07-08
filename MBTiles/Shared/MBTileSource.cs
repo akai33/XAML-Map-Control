@@ -1,5 +1,5 @@
 ﻿// XAML Map Control - https://github.com/ClemensFischer/XAML-Map-Control
-// © 2018 Clemens Fischer
+// © 2021 Clemens Fischer
 // Licensed under the Microsoft Public License (Ms-PL)
 
 using System;
@@ -10,64 +10,33 @@ using Windows.UI.Xaml.Media;
 using System.Windows.Media;
 #endif
 
-namespace MapControl
+namespace MapControl.MBTiles
 {
     public class MBTileSource : TileSource, IDisposable
     {
-        private readonly MBTileData tileData;
+        public MBTileData TileData { get; }
 
-        public string Name { get; private set; }
-        public string Description { get; private set; }
-        public int? MinZoom { get; private set; }
-        public int? MaxZoom { get; private set; }
-
-        public MBTileSource(string file)
+        public MBTileSource(MBTileData tiledata)
         {
-            tileData = new MBTileData(file);
-        }
-
-        public async Task Initialize()
-        {
-            await tileData.OpenAsync();
-
-            var metadata = await tileData.ReadMetadataAsync();
-
-            string name;
-            string description;
-            string minzoom;
-            string maxzoom;
-            int minZoom;
-            int maxZoom;
-
-            if (metadata.TryGetValue("name", out name))
-            {
-                Name = name;
-            }
-
-            if (metadata.TryGetValue("description", out description))
-            {
-                Description = description;
-            }
-
-            if (metadata.TryGetValue("minzoom", out minzoom) && int.TryParse(minzoom, out minZoom))
-            {
-                MinZoom = minZoom;
-            }
-
-            if (metadata.TryGetValue("maxzoom", out maxzoom) && int.TryParse(maxzoom, out maxZoom))
-            {
-                MaxZoom = maxZoom;
-            }
+            TileData = tiledata;
         }
 
         public void Dispose()
         {
-            tileData.Dispose();
+            Dispose(true);
+        }
+
+        protected virtual void Dispose(bool disposing)
+        {
+            if (disposing)
+            {
+                TileData.Dispose();
+            }
         }
 
         public override async Task<ImageSource> LoadImageAsync(int x, int y, int zoomLevel)
         {
-            var buffer = await tileData.ReadImageBufferAsync(x, y, zoomLevel);
+            var buffer = await TileData.ReadImageBufferAsync(x, y, zoomLevel);
 
             return buffer != null ? await ImageLoader.LoadImageAsync(buffer) : null;
         }

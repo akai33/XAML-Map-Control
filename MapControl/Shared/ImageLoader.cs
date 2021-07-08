@@ -1,16 +1,20 @@
-// XAML Map Control - https://github.com/ClemensFischer/XAML-Map-Control
-// � 2018 Clemens Fischer
+﻿// XAML Map Control - https://github.com/ClemensFischer/XAML-Map-Control
+// © 2021 Clemens Fischer
 // Licensed under the Microsoft Public License (Ms-PL)
 
 using System;
+using System.Collections.Generic;
 using System.Diagnostics;
+using System.Linq;
+using System.Net.Http;
 using System.Threading.Tasks;
-#if WINDOWS_UWP
-using Windows.Web.Http;
+#if WINUI
+using Microsoft.UI.Xaml.Media;
+using Microsoft.UI.Xaml.Media.Imaging;
+#elif WINDOWS_UWP
 using Windows.UI.Xaml.Media;
 using Windows.UI.Xaml.Media.Imaging;
 #else
-using System.Net.Http;
 using System.Windows.Media;
 using System.Windows.Media.Imaging;
 #endif
@@ -20,54 +24,87 @@ namespace MapControl
     public static partial class ImageLoader
     {
         /// <summary>
-        /// The HttpClient instance used when image data is downloaded from a web resource.
+        /// The System.Net.Http.HttpClient instance used to download images via a http or https Uri.
         /// </summary>
-        public static HttpClient HttpClient { get; set; } = new HttpClient();
+        public static HttpClient HttpClient { get; set; } = new HttpClient { Timeout = TimeSpan.FromSeconds(30) };
+
 
         public static async Task<ImageSource> LoadImageAsync(Uri uri)
         {
-            ImageSource imageSource = null;
+            ImageSource image = null;
 
             try
             {
                 if (!uri.IsAbsoluteUri || uri.Scheme == "file")
                 {
-                    imageSource = await LoadLocalImageAsync(uri);
+                    image = await LoadImageAsync(uri.IsAbsoluteUri ? uri.LocalPath : uri.OriginalString);
                 }
                 else if (uri.Scheme == "http" || uri.Scheme == "https")
                 {
-                    imageSource = await LoadHttpImageAsync(uri);
+                    var response = await GetHttpResponseAsync(uri);
+
+                    if (response != null && response.Buffer != null)
+                    {
+                        image = await LoadImageAsync(response.Buffer);
+                    }
                 }
                 else
                 {
-                    imageSource = new BitmapImage(uri);
+                    image = new BitmapImage(uri);
                 }
             }
             catch (Exception ex)
             {
-                Debug.WriteLine("ImageLoader: {0}: {1}", uri, ex.Message);
+                Debug.WriteLine($"ImageLoader: {uri}: {ex.Message}");
             }
 
-            return imageSource;
+            return image;
         }
 
-        private static async Task<ImageSource> LoadHttpImageAsync(Uri uri)
+        internal class HttpResponse
         {
-            ImageSource imageSource = null;
+            public byte[] Buffer { get; }
+            public TimeSpan? MaxAge { get; }
 
-            using (var response = await HttpClient.GetAsync(uri))
+            public HttpResponse(byte[] buffer, TimeSpan? maxAge)
             {
-                if (!response.IsSuccessStatusCode)
+                Buffer = buffer;
+                MaxAge = maxAge;
+            }
+        }
+
+        internal static async Task<HttpResponse> GetHttpResponseAsync(Uri uri)
+        {
+            HttpResponse response = null;
+
+            try
+            {
+                using (var responseMessage = await HttpClient.GetAsync(uri, HttpCompletionOption.ResponseHeadersRead).ConfigureAwait(false))
                 {
-                    Debug.WriteLine("ImageLoader: {0}: {1} {2}", uri, (int)response.StatusCode, response.ReasonPhrase);
-                }
-                else if (IsTileAvailable(response.Headers))
-                {
-                    imageSource = await LoadImageAsync(response.Content);
+                    if (responseMessage.IsSuccessStatusCode)
+                    {
+                        byte[] buffer = null;
+
+                        if (!responseMessage.Headers.TryGetValues("X-VE-Tile-Info", out IEnumerable<string> tileInfo) ||
+                            !tileInfo.Contains("no-tile"))
+                        {
+                            buffer = await responseMessage.Content.ReadAsByteArrayAsync().ConfigureAwait(false);
+                        }
+
+                        response = new HttpResponse(buffer, responseMessage.Headers.CacheControl?.MaxAge);
+                    }
+                    else
+                    {
+                        Debug.WriteLine($"ImageLoader: {uri}: {(int)responseMessage.StatusCode} {responseMessage.ReasonPhrase}");
+                    }
                 }
             }
+            catch (Exception ex)
+            {
+                Debug.WriteLine($"ImageLoader: {uri}: {ex.Message}");
+            }
 
-            return imageSource;
+            return response;
         }
     }
 }

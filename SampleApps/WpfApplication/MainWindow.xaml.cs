@@ -1,20 +1,52 @@
 ﻿using System;
+using System.Diagnostics;
 using System.Globalization;
+using System.IO;
+using System.Threading.Tasks;
 using System.Windows;
 using System.Windows.Input;
 using MapControl;
+using MapControl.Caching;
 using ViewModel;
 
 namespace WpfApplication
 {
     public partial class MainWindow : Window
     {
+        static MainWindow()
+        {
+            try
+            {
+                ImageLoader.HttpClient.DefaultRequestHeaders.Add("User-Agent", "XAML Map Control Test Application");
+
+                TileImageLoader.Cache = new ImageFileCache(TileImageLoader.DefaultCacheFolder);
+                //TileImageLoader.Cache = new FileDbCache(TileImageLoader.DefaultCacheFolder);
+                //TileImageLoader.Cache = new SQLiteCache(TileImageLoader.DefaultCacheFolder);
+                //TileImageLoader.Cache = null;
+
+                var apiKeyPath = Path.Combine(
+                    Environment.GetFolderPath(Environment.SpecialFolder.CommonApplicationData), "MapControl", "BingMapsApiKey.txt");
+
+                BingMapsTileLayer.ApiKey = File.ReadAllText(apiKeyPath)?.Trim();
+            }
+            catch (Exception ex)
+            {
+                Debug.WriteLine(ex.Message);
+            }
+        }
+
         public MainWindow()
         {
-            //TileImageLoader.Cache = new MapControl.Caching.ImageFileCache(TileImageLoader.DefaultCacheFolder);
-            //TileImageLoader.Cache = new MapControl.Caching.FileDbCache(TileImageLoader.DefaultCacheFolder);
-
             InitializeComponent();
+
+            if (TileImageLoader.Cache is ImageFileCache cache)
+            {
+                Loaded += async (s, e) =>
+                {
+                    await Task.Delay(2000);
+                    await cache.Clean();
+                };
+            }
         }
 
         private void MapMouseLeftButtonDown(object sender, MouseButtonEventArgs e)
@@ -23,7 +55,7 @@ namespace WpfApplication
             {
                 //map.ZoomMap(e.GetPosition(map), Math.Floor(map.ZoomLevel + 1.5));
                 //map.ZoomToBounds(new BoundingBox(53, 7, 54, 9));
-                map.TargetCenter = map.ViewportPointToLocation(e.GetPosition(map));
+                map.TargetCenter = map.ViewToLocation(e.GetPosition(map));
             }
         }
 
@@ -37,7 +69,7 @@ namespace WpfApplication
 
         private void MapMouseMove(object sender, MouseEventArgs e)
         {
-            var location = map.ViewportPointToLocation(e.GetPosition(map));
+            var location = map.ViewToLocation(e.GetPosition(map));
             var latitude = (int)Math.Round(location.Latitude * 60000d);
             var longitude = (int)Math.Round(Location.NormalizeLongitude(location.Longitude) * 60000d);
             var latHemisphere = 'N';
@@ -80,7 +112,7 @@ namespace WpfApplication
 
         private void SeamarksChecked(object sender, RoutedEventArgs e)
         {
-            map.Children.Insert(map.Children.IndexOf(mapGraticule), ((MapViewModel)DataContext).MapLayers.SeamarksLayer);
+            map.Children.Insert(map.Children.IndexOf(graticule), ((MapViewModel)DataContext).MapLayers.SeamarksLayer);
         }
 
         private void SeamarksUnchecked(object sender, RoutedEventArgs e)

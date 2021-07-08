@@ -1,7 +1,8 @@
 ﻿// XAML Map Control - https://github.com/ClemensFischer/XAML-Map-Control
-// © 2018 Clemens Fischer
+// © 2021 Clemens Fischer
 // Licensed under the Microsoft Public License (Ms-PL)
 
+using System;
 using System.Windows;
 using System.Windows.Documents;
 using System.Windows.Media;
@@ -56,18 +57,15 @@ namespace MapControl
         public static readonly DependencyProperty StrokeMiterLimitProperty = Shape.StrokeMiterLimitProperty.AddOwner(
             typeof(MapOverlay), new FrameworkPropertyMetadata { AffectsRender = true });
 
-        public MapOverlay()
+        static MapOverlay()
         {
-            // Set Stroke Binding in a Loaded handler to allow Stroke value from a Style Setter.
-            // SetParentMap is called too early.
+            IsHitTestVisibleProperty.OverrideMetadata(typeof(MapOverlay), new FrameworkPropertyMetadata(false));
+        }
 
-            Loaded += (s, e) =>
-            {
-                if (Stroke == null)
-                {
-                    SetBinding(StrokeProperty, GetBinding(ForegroundProperty, nameof(Foreground)));
-                }
-            };
+        protected override void OnInitialized(EventArgs e)
+        {
+            base.OnInitialized(e);
+            this.ValidateProperty(StrokeProperty, this, nameof(Foreground));
         }
 
         public Pen CreatePen()

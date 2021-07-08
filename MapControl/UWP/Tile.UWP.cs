@@ -1,29 +1,32 @@
 ﻿// XAML Map Control - https://github.com/ClemensFischer/XAML-Map-Control
-// © 2018 Clemens Fischer
+// © 2021 Clemens Fischer
 // Licensed under the Microsoft Public License (Ms-PL)
 
 using System;
+#if WINUI
+using Microsoft.UI.Xaml;
+using Microsoft.UI.Xaml.Media;
+using Microsoft.UI.Xaml.Media.Imaging;
+#else
 using Windows.UI.Xaml;
-using Windows.UI.Xaml.Controls;
 using Windows.UI.Xaml.Media;
 using Windows.UI.Xaml.Media.Imaging;
+#endif
 
 namespace MapControl
 {
     public partial class Tile
     {
-        public void SetImage(ImageSource imageSource, bool fadeIn = true)
+        public void SetImage(ImageSource image, bool fadeIn = true)
         {
             Pending = false;
 
-            if (fadeIn && FadeDuration > TimeSpan.Zero)
+            if (image != null && fadeIn && MapBase.ImageFadeDuration > TimeSpan.Zero)
             {
-                var bitmapImage = imageSource as BitmapImage;
-
-                if (bitmapImage?.UriSource != null)
+                if (image is BitmapImage bitmap && bitmap.UriSource != null)
                 {
-                    bitmapImage.ImageOpened += BitmapImageOpened;
-                    bitmapImage.ImageFailed += BitmapImageFailed;
+                    bitmap.ImageOpened += BitmapImageOpened;
+                    bitmap.ImageFailed += BitmapImageFailed;
                 }
                 else
                 {
@@ -35,25 +38,25 @@ namespace MapControl
                 Image.Opacity = 1d;
             }
 
-            Image.Source = imageSource;
+            Image.Source = image;
         }
 
         private void BitmapImageOpened(object sender, RoutedEventArgs e)
         {
-            var bitmapImage = (BitmapImage)sender;
+            var bitmap = (BitmapImage)sender;
 
-            bitmapImage.ImageOpened -= BitmapImageOpened;
-            bitmapImage.ImageFailed -= BitmapImageFailed;
+            bitmap.ImageOpened -= BitmapImageOpened;
+            bitmap.ImageFailed -= BitmapImageFailed;
 
             FadeIn();
         }
 
         private void BitmapImageFailed(object sender, ExceptionRoutedEventArgs e)
         {
-            var bitmapImage = (BitmapImage)sender;
+            var bitmap = (BitmapImage)sender;
 
-            bitmapImage.ImageOpened -= BitmapImageOpened;
-            bitmapImage.ImageFailed -= BitmapImageFailed;
+            bitmap.ImageOpened -= BitmapImageOpened;
+            bitmap.ImageFailed -= BitmapImageFailed;
 
             Image.Source = null;
         }

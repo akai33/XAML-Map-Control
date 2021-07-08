@@ -1,5 +1,5 @@
 ﻿// XAML Map Control - https://github.com/ClemensFischer/XAML-Map-Control
-// © 2018 Clemens Fischer
+// © 2021 Clemens Fischer
 // Licensed under the Microsoft Public License (Ms-PL)
 
 using System;
@@ -13,30 +13,13 @@ using System.Security.Principal;
 
 namespace MapControl.Caching
 {
-    /// <summary>
-    /// ObjectCache implementation based on local image files.
-    /// The only valid data type for cached values is byte[].
-    /// </summary>
-    public class ImageFileCache : ObjectCache
+    public partial class ImageFileCache : ObjectCache
     {
         private static readonly FileSystemAccessRule fullControlRule = new FileSystemAccessRule(
             new SecurityIdentifier(WellKnownSidType.BuiltinUsersSid, null),
             FileSystemRights.FullControl, AccessControlType.Allow);
 
         private readonly MemoryCache memoryCache = MemoryCache.Default;
-        private readonly string rootFolder;
-
-        public ImageFileCache(string rootFolder)
-        {
-            if (string.IsNullOrEmpty(rootFolder))
-            {
-                throw new ArgumentException("The parameter rootFolder must not be null or empty.");
-            }
-
-            this.rootFolder = rootFolder;
-
-            Debug.WriteLine("Created ImageFileCache in " + rootFolder);
-        }
 
         public override string Name
         {
@@ -71,53 +54,72 @@ namespace MapControl.Caching
 
         public override bool Contains(string key, string regionName = null)
         {
-            if (key == null)
-            {
-                throw new ArgumentNullException("The parameter key must not be null.");
-            }
-
             if (regionName != null)
             {
-                throw new NotSupportedException("The parameter regionName must be null.");
+                throw new NotSupportedException("ImageFileCache does not support named regions.");
             }
 
-            return memoryCache.Contains(key) || FindFile(key) != null;
+            if (key == null)
+            {
+                throw new ArgumentNullException(nameof(key));
+            }
+
+            if (memoryCache.Contains(key))
+            {
+                return true;
+            }
+
+            var path = GetPath(key);
+
+            try
+            {
+                return path != null && File.Exists(path);
+            }
+            catch (Exception ex)
+            {
+                Debug.WriteLine($"ImageFileCache: Failed finding {path}: {ex.Message}");
+            }
+
+            return false;
         }
 
         public override object Get(string key, string regionName = null)
         {
-            if (key == null)
-            {
-                throw new ArgumentNullException("The parameter key must not be null.");
-            }
-
             if (regionName != null)
             {
-                throw new NotSupportedException("The parameter regionName must be null.");
+                throw new NotSupportedException("ImageFileCache does not support named regions.");
             }
 
-            var buffer = memoryCache.Get(key) as byte[];
-
-            if (buffer == null)
+            if (key == null)
             {
-                var path = FindFile(key);
+                throw new ArgumentNullException(nameof(key));
+            }
 
-                if (path != null)
+            var cacheItem = memoryCache.Get(key) as Tuple<byte[], DateTime>;
+
+            if (cacheItem == null)
+            {
+                var path = GetPath(key);
+
+                try
                 {
-                    try
+                    if (path != null && File.Exists(path))
                     {
-                        //Debug.WriteLine("ImageFileCache: Reading " + path);
-                        buffer = File.ReadAllBytes(path);
-                        memoryCache.Set(key, buffer, new CacheItemPolicy());
+                        var buffer = File.ReadAllBytes(path);
+                        var expiration = ReadExpiration(ref buffer);
+
+                        cacheItem = new Tuple<byte[], DateTime>(buffer, expiration);
+
+                        memoryCache.Set(key, cacheItem, new CacheItemPolicy { AbsoluteExpiration = expiration });
                     }
-                    catch (Exception ex)
-                    {
-                        Debug.WriteLine("ImageFileCache: Failed reading {0}: {1}", path, ex.Message);
-                    }
+                }
+                catch (Exception ex)
+                {
+                    Debug.WriteLine($"ImageFileCache: Failed reading {path}: {ex.Message}");
                 }
             }
 
-            return buffer;
+            return cacheItem;
         }
 
         public override CacheItem GetCacheItem(string key, string regionName = null)
@@ -134,42 +136,46 @@ namespace MapControl.Caching
 
         public override void Set(string key, object value, CacheItemPolicy policy, string regionName = null)
         {
-            if (key == null)
-            {
-                throw new ArgumentNullException("The parameter key must not be null.");
-            }
-
             if (regionName != null)
             {
-                throw new NotSupportedException("The parameter regionName must be null.");
+                throw new NotSupportedException("ImageFileCache does not support named regions.");
             }
 
-            var buffer = value as byte[];
-
-            if (buffer == null || buffer.Length == 0)
+            if (key == null)
             {
-                throw new NotSupportedException("The parameter value must be a non-empty byte array.");
+                throw new ArgumentNullException(nameof(key));
             }
 
-            memoryCache.Set(key, buffer, policy);
+            if (!(value is Tuple<byte[], DateTime> cacheItem))
+            {
+                throw new ArgumentException("The value argument must be a Tuple<byte[], DateTime>.", nameof(value));
+            }
 
+            memoryCache.Set(key, cacheItem, policy);
+
+            var buffer = cacheItem.Item1;
             var path = GetPath(key);
 
-            if (path != null)
+            if (buffer != null && buffer.Length > 0 && path != null)
             {
                 try
                 {
-                    //Debug.WriteLine("ImageFileCache: Writing {0}, Expires {1}", path, policy.AbsoluteExpiration.DateTime.ToLocalTime());
                     Directory.CreateDirectory(Path.GetDirectoryName(path));
-                    File.WriteAllBytes(path, buffer);
 
-                    var fileSecurity = File.GetAccessControl(path);
+                    using (var stream = File.Create(path))
+                    {
+                        stream.Write(buffer, 0, buffer.Length);
+                        WriteExpiration(stream, cacheItem.Item2);
+                    }
+
+                    var fileInfo = new FileInfo(path);
+                    var fileSecurity = fileInfo.GetAccessControl();
                     fileSecurity.AddAccessRule(fullControlRule);
-                    File.SetAccessControl(path, fileSecurity);
+                    fileInfo.SetAccessControl(fileSecurity);
                 }
                 catch (Exception ex)
                 {
-                    Debug.WriteLine("ImageFileCache: Failed writing {0}: {1}", path, ex.Message);
+                    Debug.WriteLine($"ImageFileCache: Failed writing {path}: {ex.Message}");
                 }
             }
         }
@@ -209,63 +215,30 @@ namespace MapControl.Caching
 
         public override object Remove(string key, string regionName = null)
         {
-            if (key == null)
-            {
-                throw new ArgumentNullException("The parameter key must not be null.");
-            }
-
             if (regionName != null)
             {
-                throw new NotSupportedException("The parameter regionName must be null.");
+                throw new NotSupportedException("ImageFileCache does not support named regions.");
+            }
+
+            if (key == null)
+            {
+                throw new ArgumentNullException(nameof(key));
             }
 
             memoryCache.Remove(key);
 
-            var path = FindFile(key);
-
-            if (path != null)
-            {
-                try
-                {
-                    File.Delete(path);
-                }
-                catch (Exception ex)
-                {
-                    Debug.WriteLine("ImageFileCache: Failed removing {0}: {1}", path, ex.Message);
-                }
-            }
-
-            return null;
-        }
-
-        private string FindFile(string key)
-        {
             var path = GetPath(key);
 
             try
             {
                 if (path != null && File.Exists(path))
                 {
-                    return path;
+                    File.Delete(path);
                 }
             }
             catch (Exception ex)
             {
-                Debug.WriteLine("ImageFileCache: Failed finding {0}: {1}", path, ex.Message);
-            }
-
-            return null;
-        }
-
-        private string GetPath(string key)
-        {
-            try
-            {
-                return Path.Combine(rootFolder, Path.Combine(key.Split('\\', '/', ':', ';')));
-            }
-            catch (Exception ex)
-            {
-                Debug.WriteLine("ImageFileCache: Invalid key {0}/{1}: {2}", rootFolder, key, ex.Message);
+                Debug.WriteLine($"ImageFileCache: Failed removing {path}: {ex.Message}");
             }
 
             return null;

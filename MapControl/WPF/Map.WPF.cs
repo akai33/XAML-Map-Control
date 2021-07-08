@@ -1,7 +1,8 @@
 ﻿// XAML Map Control - https://github.com/ClemensFischer/XAML-Map-Control
-// © 2018 Clemens Fischer
+// © 2021 Clemens Fischer
 // Licensed under the Microsoft Public License (Ms-PL)
 
+using System;
 using System.Windows;
 using System.Windows.Input;
 
@@ -12,17 +13,37 @@ namespace MapControl
     /// </summary>
     public class Map : MapBase
     {
-        public static readonly DependencyProperty ManipulationModeProperty = DependencyProperty.Register(
-            nameof(ManipulationMode), typeof(ManipulationModes), typeof(Map), new PropertyMetadata(ManipulationModes.All));
-
         public static readonly DependencyProperty MouseWheelZoomDeltaProperty = DependencyProperty.Register(
             nameof(MouseWheelZoomDelta), typeof(double), typeof(Map), new PropertyMetadata(1d));
+
+        public static readonly DependencyProperty ManipulationModeProperty = DependencyProperty.Register(
+            nameof(ManipulationMode), typeof(ManipulationModes), typeof(Map), new PropertyMetadata(ManipulationModes.All));
 
         private Point? mousePosition;
 
         static Map()
         {
             IsManipulationEnabledProperty.OverrideMetadata(typeof(Map), new FrameworkPropertyMetadata(true));
+        }
+
+        public Map()
+        {
+            ManipulationStarted += OnManipulationStarted;
+            ManipulationDelta += OnManipulationDelta;
+            MouseLeftButtonDown += OnMouseLeftButtonDown;
+            MouseLeftButtonUp += OnMouseLeftButtonUp;
+            MouseMove += OnMouseMove;
+            MouseWheel += OnMouseWheel;
+        }
+
+        /// <summary>
+        /// Gets or sets the amount by which the ZoomLevel property changes during a MouseWheel event.
+        /// The default value is 1.
+        /// </summary>
+        public double MouseWheelZoomDelta
+        {
+            get { return (double)GetValue(MouseWheelZoomDeltaProperty); }
+            set { SetValue(MouseWheelZoomDeltaProperty, value); }
         }
 
         /// <summary>
@@ -34,37 +55,29 @@ namespace MapControl
             set { SetValue(ManipulationModeProperty, value); }
         }
 
-        /// <summary>
-        /// Gets or sets the amount by which the ZoomLevel property changes during a MouseWheel event.
-        /// </summary>
-        public double MouseWheelZoomDelta
+        private void OnManipulationStarted(object sender, ManipulationStartedEventArgs e)
         {
-            get { return (double)GetValue(MouseWheelZoomDeltaProperty); }
-            set { SetValue(MouseWheelZoomDeltaProperty, value); }
+            Manipulation.SetManipulationMode(this, ManipulationMode);
         }
 
-        protected override void OnMouseWheel(MouseWheelEventArgs e)
+        private void OnManipulationDelta(object sender, ManipulationDeltaEventArgs e)
         {
-            base.OnMouseWheel(e);
-
-            var zoomDelta = MouseWheelZoomDelta * e.Delta / 120d;
-            ZoomMap(e.GetPosition(this), TargetZoomLevel + zoomDelta);
+            TransformMap(e.ManipulationOrigin,
+                e.DeltaManipulation.Translation,
+                e.DeltaManipulation.Rotation,
+                e.DeltaManipulation.Scale.LengthSquared / 2d);
         }
 
-        protected override void OnMouseLeftButtonDown(MouseButtonEventArgs e)
+        private void OnMouseLeftButtonDown(object sender, MouseButtonEventArgs e)
         {
-            base.OnMouseLeftButtonDown(e);
-
             if (CaptureMouse())
             {
                 mousePosition = e.GetPosition(this);
             }
         }
 
-        protected override void OnMouseLeftButtonUp(MouseButtonEventArgs e)
+        private void OnMouseLeftButtonUp(object sender, MouseButtonEventArgs e)
         {
-            base.OnMouseLeftButtonUp(e);
-
             if (mousePosition.HasValue)
             {
                 mousePosition = null;
@@ -72,32 +85,23 @@ namespace MapControl
             }
         }
 
-        protected override void OnMouseMove(MouseEventArgs e)
+        private void OnMouseMove(object sender, MouseEventArgs e)
         {
-            base.OnMouseMove(e);
-
             if (mousePosition.HasValue)
             {
                 var position = e.GetPosition(this);
-                TranslateMap(position - mousePosition.Value);
+                var translation = position - mousePosition.Value;
                 mousePosition = position;
+
+                TranslateMap(translation);
             }
         }
 
-        protected override void OnManipulationStarted(ManipulationStartedEventArgs e)
+        private void OnMouseWheel(object sender, MouseWheelEventArgs e)
         {
-            base.OnManipulationStarted(e);
+            var zoomLevel = TargetZoomLevel + MouseWheelZoomDelta * Math.Sign(e.Delta);
 
-            Manipulation.SetManipulationMode(this, ManipulationMode);
-        }
-
-        protected override void OnManipulationDelta(ManipulationDeltaEventArgs e)
-        {
-            base.OnManipulationDelta(e);
-
-            TransformMap(e.ManipulationOrigin,
-                e.DeltaManipulation.Translation, e.DeltaManipulation.Rotation,
-                (e.DeltaManipulation.Scale.X + e.DeltaManipulation.Scale.Y) / 2d);
+            ZoomMap(e.GetPosition(this), MouseWheelZoomDelta * Math.Round(zoomLevel / MouseWheelZoomDelta));
         }
     }
 }

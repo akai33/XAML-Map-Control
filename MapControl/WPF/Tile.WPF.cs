@@ -1,5 +1,5 @@
 ﻿// XAML Map Control - https://github.com/ClemensFischer/XAML-Map-Control
-// © 2018 Clemens Fischer
+// © 2021 Clemens Fischer
 // Licensed under the Microsoft Public License (Ms-PL)
 
 using System;
@@ -11,18 +11,16 @@ namespace MapControl
 {
     public partial class Tile
     {
-        public void SetImage(ImageSource imageSource, bool fadeIn = true)
+        public void SetImage(ImageSource image, bool fadeIn = true)
         {
             Pending = false;
 
-            if (fadeIn && FadeDuration > TimeSpan.Zero)
+            if (image != null && fadeIn && MapBase.ImageFadeDuration > TimeSpan.Zero)
             {
-                var bitmapSource = imageSource as BitmapSource;
-
-                if (bitmapSource != null && !bitmapSource.IsFrozen && bitmapSource.IsDownloading)
+                if (image is BitmapSource bitmap && !bitmap.IsFrozen && bitmap.IsDownloading)
                 {
-                    bitmapSource.DownloadCompleted += BitmapDownloadCompleted;
-                    bitmapSource.DownloadFailed += BitmapDownloadFailed;
+                    bitmap.DownloadCompleted += BitmapDownloadCompleted;
+                    bitmap.DownloadFailed += BitmapDownloadFailed;
                 }
                 else
                 {
@@ -34,25 +32,25 @@ namespace MapControl
                 Image.Opacity = 1d;
             }
 
-            Image.Source = imageSource;
+            Image.Source = image;
         }
 
         private void BitmapDownloadCompleted(object sender, EventArgs e)
         {
-            var bitmapSource = (BitmapSource)sender;
+            var bitmap = (BitmapSource)sender;
 
-            bitmapSource.DownloadCompleted -= BitmapDownloadCompleted;
-            bitmapSource.DownloadFailed -= BitmapDownloadFailed;
+            bitmap.DownloadCompleted -= BitmapDownloadCompleted;
+            bitmap.DownloadFailed -= BitmapDownloadFailed;
 
             FadeIn();
         }
 
         private void BitmapDownloadFailed(object sender, ExceptionEventArgs e)
         {
-            var bitmapSource = (BitmapSource)sender;
+            var bitmap = (BitmapSource)sender;
 
-            bitmapSource.DownloadCompleted -= BitmapDownloadCompleted;
-            bitmapSource.DownloadFailed -= BitmapDownloadFailed;
+            bitmap.DownloadCompleted -= BitmapDownloadCompleted;
+            bitmap.DownloadFailed -= BitmapDownloadFailed;
 
             Image.Source = null;
         }

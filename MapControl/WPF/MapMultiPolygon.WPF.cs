@@ -1,5 +1,5 @@
 ﻿// XAML Map Control - https://github.com/ClemensFischer/XAML-Map-Control
-// © 2018 Clemens Fischer
+// © 2021 Clemens Fischer
 // Licensed under the Microsoft Public License (Ms-PL)
 
 using System.Collections.Generic;
@@ -16,7 +16,7 @@ namespace MapControl
     /// for the Polygons property if collection changes of the property itself and its
     /// elements are both supposed to trigger a UI update.
     /// </summary>
-    public class MapMultiPolygon : MapShape
+    public class MapMultiPolygon : MapPath
     {
         public static readonly DependencyProperty PolygonsProperty = DependencyProperty.Register(
             nameof(Polygons), typeof(IEnumerable<IEnumerable<Location>>), typeof(MapMultiPolygon),
@@ -31,16 +31,23 @@ namespace MapControl
             set { SetValue(PolygonsProperty, value); }
         }
 
+        public MapMultiPolygon()
+        {
+            Data = new PathGeometry();
+        }
+
         protected override void UpdateData()
         {
-            var figures = ((PathGeometry)Data).Figures;
-            figures.Clear();
+            var pathFigures = ((PathGeometry)Data).Figures;
+            pathFigures.Clear();
 
             if (ParentMap != null && Polygons != null)
             {
+                var longitudeOffset = GetLongitudeOffset(Location);
+
                 foreach (var polygon in Polygons)
                 {
-                    AddPolylineLocations(figures, polygon, true);
+                    AddPolylineLocations(pathFigures, polygon, longitudeOffset, true);
                 }
             }
         }

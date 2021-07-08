@@ -1,14 +1,18 @@
 ﻿// XAML Map Control - https://github.com/ClemensFischer/XAML-Map-Control
-// © 2018 Clemens Fischer
+// © 2021 Clemens Fischer
 // Licensed under the Microsoft Public License (Ms-PL)
 
 using System;
 using Windows.Foundation;
-using Windows.UI.Xaml;
+#if WINUI
+using Microsoft.UI.Xaml.Controls;
+using Microsoft.UI.Xaml.Media;
+using Microsoft.UI.Xaml.Shapes;
+#else
 using Windows.UI.Xaml.Controls;
 using Windows.UI.Xaml.Media;
 using Windows.UI.Xaml.Shapes;
-using Windows.UI.Xaml.Data;
+#endif
 
 namespace MapControl
 {
@@ -18,28 +22,28 @@ namespace MapControl
 
         public MapGraticule()
         {
-            IsHitTestVisible = false;
             StrokeThickness = 0.5;
         }
 
         protected override void OnViewportChanged(ViewportChangedEventArgs e)
         {
-            var projection = ParentMap.MapProjection;
+            var map = ParentMap;
+            var projection = map.MapProjection;
 
-            if (projection.IsCylindrical)
+            if (projection.IsNormalCylindrical)
             {
                 if (path == null)
                 {
                     path = new Path { Data = new PathGeometry() };
-                    path.SetBinding(Shape.StrokeProperty, GetBinding(StrokeProperty, nameof(Stroke)));
-                    path.SetBinding(Shape.StrokeThicknessProperty, GetBinding(StrokeThicknessProperty, nameof(StrokeThickness)));
-                    path.SetBinding(Shape.StrokeDashArrayProperty, GetBinding(StrokeDashArrayProperty, nameof(StrokeDashArray)));
-                    path.SetBinding(Shape.StrokeDashOffsetProperty, GetBinding(StrokeDashOffsetProperty, nameof(StrokeDashOffset)));
-                    path.SetBinding(Shape.StrokeDashCapProperty, GetBinding(StrokeDashCapProperty, nameof(StrokeDashCap)));
+                    path.SetBinding(Shape.StrokeProperty, this.GetBinding(nameof(Stroke)));
+                    path.SetBinding(Shape.StrokeThicknessProperty, this.GetBinding(nameof(StrokeThickness)));
+                    path.SetBinding(Shape.StrokeDashArrayProperty, this.GetBinding(nameof(StrokeDashArray)));
+                    path.SetBinding(Shape.StrokeDashOffsetProperty, this.GetBinding(nameof(StrokeDashOffset)));
+                    path.SetBinding(Shape.StrokeDashCapProperty, this.GetBinding(nameof(StrokeDashCap)));
                     Children.Add(path);
                 }
 
-                var bounds = projection.ViewportRectToBoundingBox(new Rect(0d, 0d, ParentMap.RenderSize.Width, ParentMap.RenderSize.Height));
+                var bounds = map.ViewRectToBoundingBox(new Rect(0d, 0d, map.RenderSize.Width, map.RenderSize.Height));
                 var lineDistance = GetLineDistance();
 
                 var labelStart = new Location(
@@ -65,14 +69,14 @@ namespace MapControl
                 {
                     var figure = new PathFigure
                     {
-                        StartPoint = projection.LocationToViewportPoint(new Location(lat, lineStart.Longitude)),
+                        StartPoint = map.LocationToView(new Location(lat, lineStart.Longitude)),
                         IsClosed = false,
                         IsFilled = false
                     };
 
                     figure.Segments.Add(new LineSegment
                     {
-                        Point = projection.LocationToViewportPoint(new Location(lat, lineEnd.Longitude))
+                        Point = map.LocationToView(new Location(lat, lineEnd.Longitude))
                     });
 
                     geometry.Figures.Add(figure);
@@ -82,14 +86,14 @@ namespace MapControl
                 {
                     var figure = new PathFigure
                     {
-                        StartPoint = projection.LocationToViewportPoint(new Location(lineStart.Latitude, lon)),
+                        StartPoint = map.LocationToView(new Location(lineStart.Latitude, lon)),
                         IsClosed = false,
                         IsFilled = false
                     };
 
                     figure.Segments.Add(new LineSegment
                     {
-                        Point = projection.LocationToViewportPoint(new Location(lineEnd.Latitude, lon))
+                        Point = map.LocationToView(new Location(lineEnd.Latitude, lon))
                     });
 
                     geometry.Figures.Add(figure);
@@ -110,21 +114,17 @@ namespace MapControl
                         }
                         else
                         {
-                            var renderTransform = new TransformGroup();
-                            renderTransform.Children.Add(new TranslateTransform());
-                            renderTransform.Children.Add(ParentMap.RotateTransform);
-                            renderTransform.Children.Add(new TranslateTransform());
+                            label = new TextBlock { RenderTransform = new MatrixTransform() };
+                            label.SetBinding(TextBlock.FontSizeProperty, this.GetBinding(nameof(FontSize)));
+                            label.SetBinding(TextBlock.FontStyleProperty, this.GetBinding(nameof(FontStyle)));
+                            label.SetBinding(TextBlock.FontStretchProperty, this.GetBinding(nameof(FontStretch)));
+                            label.SetBinding(TextBlock.FontWeightProperty, this.GetBinding(nameof(FontWeight)));
+                            label.SetBinding(TextBlock.ForegroundProperty, this.GetBinding(nameof(Foreground)));
 
-                            label = new TextBlock { RenderTransform = renderTransform };
                             if (FontFamily != null)
                             {
-                                label.SetBinding(TextBlock.FontFamilyProperty, GetBinding(FontFamilyProperty, nameof(FontFamily)));
+                                label.SetBinding(TextBlock.FontFamilyProperty, this.GetBinding(nameof(FontFamily)));
                             }
-                            label.SetBinding(TextBlock.FontSizeProperty, GetBinding(FontSizeProperty, nameof(FontSize)));
-                            label.SetBinding(TextBlock.FontStyleProperty, GetBinding(FontStyleProperty, nameof(FontStyle)));
-                            label.SetBinding(TextBlock.FontStretchProperty, GetBinding(FontStretchProperty, nameof(FontStretch)));
-                            label.SetBinding(TextBlock.FontWeightProperty, GetBinding(FontWeightProperty, nameof(FontWeight)));
-                            label.SetBinding(TextBlock.ForegroundProperty, GetBinding(ForegroundProperty, nameof(Foreground)));
 
                             Children.Add(label);
                         }
@@ -134,10 +134,6 @@ namespace MapControl
                         label.Text = GetLabelText(lat, labelFormat, "NS") + "\n" + GetLabelText(Location.NormalizeLongitude(lon), labelFormat, "EW");
                         label.Tag = new Location(lat, lon);
                         label.Measure(new Size(double.PositiveInfinity, double.PositiveInfinity));
-
-                        var translateTransform = (TranslateTransform)((TransformGroup)label.RenderTransform).Children[0];
-                        translateTransform.X = StrokeThickness / 2d + 2d;
-                        translateTransform.Y = -label.DesiredSize.Height / 2d;
                     }
 
                     while (Children.Count > childIndex)
@@ -152,10 +148,14 @@ namespace MapControl
                 {
                     var label = (TextBlock)Children[i];
                     var location = (Location)label.Tag;
-                    var viewportTransform = (TranslateTransform)((TransformGroup)label.RenderTransform).Children[2];
-                    var viewportPosition = projection.LocationToViewportPoint(location);
-                    viewportTransform.X = viewportPosition.X;
-                    viewportTransform.Y = viewportPosition.Y;
+                    var viewPosition = map.LocationToView(location);
+                    var matrix = new Matrix(1, 0, 0, 1, 0, 0);
+
+                    matrix.Translate(StrokeThickness / 2d + 2d, -label.DesiredSize.Height / 2d);
+                    matrix.Rotate(map.ViewTransform.Rotation);
+                    matrix.Translate(viewPosition.X, viewPosition.Y);
+
+                    ((MatrixTransform)label.RenderTransform).Matrix = matrix;
                 }
             }
             else if (path != null)

@@ -1,9 +1,15 @@
 ﻿// XAML Map Control - https://github.com/ClemensFischer/XAML-Map-Control
-// © 2018 Clemens Fischer
+// © 2021 Clemens Fischer
 // Licensed under the Microsoft Public License (Ms-PL)
 
 using System;
-#if WINDOWS_UWP
+#if WINUI
+using Windows.Foundation;
+using Microsoft.UI.Xaml;
+using Microsoft.UI.Xaml.Media;
+using Microsoft.UI.Xaml.Media.Animation;
+#elif WINDOWS_UWP
+using Windows.Foundation;
 using Windows.UI.Xaml;
 using Windows.UI.Xaml.Media;
 using Windows.UI.Xaml.Media.Animation;
@@ -22,14 +28,15 @@ namespace MapControl
     }
 
     /// <summary>
-    /// The map control. Displays map content provided by one or more MapTileLayers or MapImageLayers.
+    /// The map control. Displays map content provided by one or more tile or image layers,
+    /// i.e. MapTileLayerBase or MapImageLayer instances.
     /// The visible map area is defined by the Center and ZoomLevel properties.
     /// The map can be rotated by an angle that is given by the Heading property.
     /// MapBase can contain map overlay child elements like other MapPanels or MapItemsControls.
     /// </summary>
     public partial class MapBase : MapPanel
     {
-        private const double MaximumZoomLevel = 22d;
+        public static TimeSpan ImageFadeDuration { get; set; } = TimeSpan.FromSeconds(0.1);
 
         public static readonly DependencyProperty MapLayerProperty = DependencyProperty.Register(
             nameof(MapLayer), typeof(UIElement), typeof(MapBase),
@@ -37,7 +44,7 @@ namespace MapControl
 
         public static readonly DependencyProperty MapProjectionProperty = DependencyProperty.Register(
             nameof(MapProjection), typeof(MapProjection), typeof(MapBase),
-            new PropertyMetadata(null, (o, e) => ((MapBase)o).MapProjectionPropertyChanged()));
+            new PropertyMetadata(new WebMercatorProjection(), (o, e) => ((MapBase)o).MapProjectionPropertyChanged()));
 
         public static readonly DependencyProperty ProjectionCenterProperty = DependencyProperty.Register(
             nameof(ProjectionCenter), typeof(Location), typeof(MapBase),
@@ -49,7 +56,7 @@ namespace MapControl
 
         public static readonly DependencyProperty MaxZoomLevelProperty = DependencyProperty.Register(
             nameof(MaxZoomLevel), typeof(double), typeof(MapBase),
-            new PropertyMetadata(19d, (o, e) => ((MapBase)o).MaxZoomLevelPropertyChanged((double)e.NewValue)));
+            new PropertyMetadata(20d, (o, e) => ((MapBase)o).MaxZoomLevelPropertyChanged((double)e.NewValue)));
 
         public static readonly DependencyProperty AnimationDurationProperty = DependencyProperty.Register(
             nameof(AnimationDuration), typeof(TimeSpan), typeof(MapBase),
@@ -59,20 +66,16 @@ namespace MapControl
             nameof(AnimationEasingFunction), typeof(EasingFunctionBase), typeof(MapBase),
             new PropertyMetadata(new QuadraticEase { EasingMode = EasingMode.EaseOut }));
 
-        public static readonly DependencyProperty TileFadeDurationProperty = DependencyProperty.Register(
-            nameof(TileFadeDuration), typeof(TimeSpan), typeof(MapBase),
-            new PropertyMetadata(Tile.FadeDuration, (o, e) => Tile.FadeDuration = (TimeSpan)e.NewValue));
-
         private PointAnimation centerAnimation;
         private DoubleAnimation zoomLevelAnimation;
         private DoubleAnimation headingAnimation;
         private Location transformCenter;
-        private Point viewportCenter;
+        private Point viewCenter;
         private double centerLongitude;
         private bool internalPropertyChange;
 
         /// <summary>
-        /// Raised when the current viewport has changed.
+        /// Raised when the current map viewport has changed.
         /// </summary>
         public event EventHandler<ViewportChangedEventArgs> ViewportChanged;
 
@@ -146,8 +149,8 @@ namespace MapControl
 
         /// <summary>
         /// Gets or sets the maximum value of the ZoomLevel and TargetZommLevel properties.
-        /// Must be greater than or equal to MinZoomLevel and less than or equal to 20.
-        /// The default value is 19.
+        /// Must be greater than or equal to MinZoomLevel and less than or equal to 22.
+        /// The default value is 20.
         /// </summary>
         public double MaxZoomLevel
         {
@@ -212,59 +215,71 @@ namespace MapControl
         }
 
         /// <summary>
-        /// Gets or sets the Duration of the Tile Opacity animation.
-        /// The default value is 0.2 seconds.
+        /// Gets the scaling factor from cartesian map coordinates to view coordinates,
+        /// i.e. pixels per meter, as a read-only dependency property.
         /// </summary>
-        public TimeSpan TileFadeDuration
+        public double ViewScale
         {
-            get { return (TimeSpan)GetValue(TileFadeDurationProperty); }
-            set { SetValue(TileFadeDurationProperty, value); }
+            get { return (double)GetValue(ViewScaleProperty); }
         }
 
         /// <summary>
-        /// Gets the transformation from cartesian map coordinates to viewport coordinates (pixels).
+        /// Gets the ViewTransform instance that is used to transform between cartesian map coordinates
+        /// and view coordinates.
         /// </summary>
-        public MatrixTransform ViewportTransform { get; } = new MatrixTransform();
+        public ViewTransform ViewTransform { get; } = new ViewTransform();
 
         /// <summary>
-        /// Gets the scaling transformation from meters to viewport coordinates at the Center location.
+        /// Gets the horizontal and vertical scaling factors from cartesian map coordinates to view
+        /// coordinates at the specified location, i.e. pixels per meter.
         /// </summary>
-        public ScaleTransform ScaleTransform { get; } = new ScaleTransform();
-
-        /// <summary>
-        /// Gets the transformation that rotates by the value of the Heading property.
-        /// </summary>
-        public RotateTransform RotateTransform { get; } = new RotateTransform();
-
-        /// <summary>
-        /// Gets the combination of ScaleTransform and RotateTransform
-        /// </summary>
-        public TransformGroup ScaleRotateTransform { get; } = new TransformGroup();
-
-        /// <summary>
-        /// Transforms a Location in geographic coordinates to a Point in viewport coordinates.
-        /// </summary>
-        public Point LocationToViewportPoint(Location location)
+        public Vector GetScale(Location location)
         {
-            return MapProjection.LocationToViewportPoint(location);
+            return ViewTransform.Scale * MapProjection.GetRelativeScale(location);
         }
 
         /// <summary>
-        /// Transforms a Point in viewport coordinates to a Location in geographic coordinates.
+        /// Transforms a Location in geographic coordinates to a Point in view coordinates.
         /// </summary>
-        public Location ViewportPointToLocation(Point point)
+        public Point LocationToView(Location location)
         {
-            return MapProjection.ViewportPointToLocation(point);
+            return ViewTransform.MapToView(MapProjection.LocationToMap(location));
         }
 
         /// <summary>
-        /// Sets a temporary center point in viewport coordinates for scaling and rotation transformations.
+        /// Transforms a Point in view coordinates to a Location in geographic coordinates.
+        /// </summary>
+        public Location ViewToLocation(Point point)
+        {
+            return MapProjection.MapToLocation(ViewTransform.ViewToMap(point));
+        }
+
+        /// <summary>
+        /// Transforms a Rect in view coordinates to a BoundingBox in geographic coordinates.
+        /// </summary>
+        public BoundingBox ViewRectToBoundingBox(Rect rect)
+        {
+            var p1 = ViewTransform.ViewToMap(new Point(rect.X, rect.Y));
+            var p2 = ViewTransform.ViewToMap(new Point(rect.X, rect.Y + rect.Height));
+            var p3 = ViewTransform.ViewToMap(new Point(rect.X + rect.Width, rect.Y));
+            var p4 = ViewTransform.ViewToMap(new Point(rect.X + rect.Width, rect.Y + rect.Height));
+
+            rect.X = Math.Min(p1.X, Math.Min(p2.X, Math.Min(p3.X, p4.X)));
+            rect.Y = Math.Min(p1.Y, Math.Min(p2.Y, Math.Min(p3.Y, p4.Y)));
+            rect.Width = Math.Max(p1.X, Math.Max(p2.X, Math.Max(p3.X, p4.X))) - rect.X;
+            rect.Height = Math.Max(p1.Y, Math.Max(p2.Y, Math.Max(p3.Y, p4.Y))) - rect.Y;
+
+            return MapProjection.RectToBoundingBox(rect);
+        }
+
+        /// <summary>
+        /// Sets a temporary center point in view coordinates for scaling and rotation transformations.
         /// This center point is automatically reset when the Center property is set by application code.
         /// </summary>
         public void SetTransformCenter(Point center)
         {
-            transformCenter = MapProjection.ViewportPointToLocation(center);
-            viewportCenter = center;
+            transformCenter = ViewToLocation(center);
+            viewCenter = center;
         }
 
         /// <summary>
@@ -273,11 +288,11 @@ namespace MapControl
         public void ResetTransformCenter()
         {
             transformCenter = null;
-            viewportCenter = new Point(RenderSize.Width / 2d, RenderSize.Height / 2d);
+            viewCenter = new Point(RenderSize.Width / 2d, RenderSize.Height / 2d);
         }
 
         /// <summary>
-        /// Changes the Center property according to the specified translation in viewport coordinates.
+        /// Changes the Center property according to the specified translation in view coordinates.
         /// </summary>
         public void TranslateMap(Vector translation)
         {
@@ -289,25 +304,26 @@ namespace MapControl
 
             if (translation.X != 0d || translation.Y != 0d)
             {
-                Center = MapProjection.ViewportPointToLocation(viewportCenter - translation);
+                Center = ViewToLocation(viewCenter - translation);
             }
         }
 
         /// <summary>
         /// Changes the Center, Heading and ZoomLevel properties according to the specified
-        /// viewport coordinate translation, rotation and scale delta values. Rotation and scaling
-        /// is performed relative to the specified center point in viewport coordinates.
+        /// view coordinate translation, rotation and scale delta values. Rotation and scaling
+        /// is performed relative to the specified center point in view coordinates.
         /// </summary>
         public void TransformMap(Point center, Vector translation, double rotation, double scale)
         {
             if (rotation != 0d || scale != 1d)
             {
-                transformCenter = MapProjection.ViewportPointToLocation(center);
-                viewportCenter = center + translation;
+                transformCenter = ViewToLocation(center);
+                viewCenter = center + translation;
 
                 if (rotation != 0d)
                 {
                     var heading = (((Heading + rotation) % 360d) + 360d) % 360d;
+
                     SetValueInternal(HeadingProperty, heading);
                     SetValueInternal(TargetHeadingProperty, heading);
                 }
@@ -315,6 +331,7 @@ namespace MapControl
                 if (scale != 1d)
                 {
                     var zoomLevel = Math.Min(Math.Max(ZoomLevel + Math.Log(scale, 2d), MinZoomLevel), MaxZoomLevel);
+
                     SetValueInternal(ZoomLevelProperty, zoomLevel);
                     SetValueInternal(TargetZoomLevelProperty, zoomLevel);
                 }
@@ -329,7 +346,7 @@ namespace MapControl
 
         /// <summary>
         /// Sets the value of the TargetZoomLevel property while retaining the specified center point
-        /// in viewport coordinates.
+        /// in view coordinates.
         /// </summary>
         public void ZoomMap(Point center, double zoomLevel)
         {
@@ -344,21 +361,33 @@ namespace MapControl
 
         /// <summary>
         /// Sets the TargetZoomLevel and TargetCenter properties so that the specified bounding box
-        /// fits into the current viewport. The TargetHeading property is set to zero.
+        /// fits into the current view. The TargetHeading property is set to zero.
         /// </summary>
         public void ZoomToBounds(BoundingBox boundingBox)
         {
-            if (boundingBox != null && boundingBox.HasValidBounds)
-            {
-                var rect = MapProjection.BoundingBoxToRect(boundingBox);
-                var center = new Point(rect.X + rect.Width / 2d, rect.Y + rect.Height / 2d);
-                var scale = Math.Min(RenderSize.Width / rect.Width, RenderSize.Height / rect.Height)
-                          * MapProjection.TrueScale / MapProjection.PixelPerDegree;
+            var rect = MapProjection.BoundingBoxToRect(boundingBox);
+            var center = new Point(rect.X + rect.Width / 2d, rect.Y + rect.Height / 2d);
+            var scale = Math.Min(RenderSize.Width / rect.Width, RenderSize.Height / rect.Height);
 
-                TargetZoomLevel = Math.Log(scale, 2d);
-                TargetCenter = MapProjection.PointToLocation(center);
-                TargetHeading = 0d;
+            TargetZoomLevel = ViewTransform.ScaleToZoomLevel(scale);
+            TargetCenter = MapProjection.MapToLocation(center);
+            TargetHeading = 0d;
+        }
+
+        internal double ConstrainedLongitude(double longitude)
+        {
+            var offset = longitude - Center.Longitude;
+
+            if (offset > 180d)
+            {
+                longitude = Center.Longitude - 360d + offset % 360d;
             }
+            else if (offset < -180d)
+            {
+                longitude = Center.Longitude + 360d + offset % 360d;
+            }
+
+            return longitude;
         }
 
         private void MapLayerPropertyChanged(UIElement oldLayer, UIElement newLayer)
@@ -367,8 +396,7 @@ namespace MapControl
             {
                 Children.Remove(oldLayer);
 
-                var mapLayer = oldLayer as IMapLayer;
-                if (mapLayer != null)
+                if (oldLayer is IMapLayer mapLayer)
                 {
                     if (mapLayer.MapBackground != null)
                     {
@@ -385,8 +413,7 @@ namespace MapControl
             {
                 Children.Insert(0, newLayer);
 
-                var mapLayer = newLayer as IMapLayer;
-                if (mapLayer != null)
+                if (newLayer is IMapLayer mapLayer)
                 {
                     if (mapLayer.MapBackground != null)
                     {
@@ -414,17 +441,16 @@ namespace MapControl
 
         private void AdjustCenterProperty(DependencyProperty property, ref Location center)
         {
-            if (center == null)
-            {
-                center = new Location();
-                SetValueInternal(property, center);
-            }
-            else if (center.Longitude < -180d || center.Longitude > 180d ||
+            if (center == null ||
+                center.Longitude < -180d || center.Longitude > 180d ||
                 center.Latitude < -MapProjection.MaxLatitude || center.Latitude > MapProjection.MaxLatitude)
             {
-                center = new Location(
-                    Math.Min(Math.Max(center.Latitude, -MapProjection.MaxLatitude), MapProjection.MaxLatitude),
-                    Location.NormalizeLongitude(center.Longitude));
+                center = (center == null)
+                    ? new Location()
+                    : new Location(
+                        Math.Min(Math.Max(center.Latitude, -MapProjection.MaxLatitude), MapProjection.MaxLatitude),
+                        Location.NormalizeLongitude(center.Longitude));
+
                 SetValueInternal(property, center);
             }
         }
@@ -451,10 +477,6 @@ namespace MapControl
 
                 if (!targetCenter.Equals(Center))
                 {
-                    var targetCenterLongitude = MapProjection.IsCylindrical
-                        ? Location.NearestLongitude(targetCenter.Longitude, Center.Longitude)
-                        : targetCenter.Longitude;
-
                     if (centerAnimation != null)
                     {
                         centerAnimation.Completed -= CenterAnimationCompleted;
@@ -463,7 +485,7 @@ namespace MapControl
                     centerAnimation = new PointAnimation
                     {
                         From = new Point(Center.Longitude, Center.Latitude),
-                        To = new Point(targetCenterLongitude, targetCenter.Latitude),
+                        To = new Point(ConstrainedLongitude(targetCenter.Longitude), targetCenter.Latitude),
                         Duration = AnimationDuration,
                         EasingFunction = AnimationEasingFunction
                     };
@@ -500,6 +522,7 @@ namespace MapControl
             if (minZoomLevel < 0d || minZoomLevel > MaxZoomLevel)
             {
                 minZoomLevel = Math.Min(Math.Max(minZoomLevel, 0d), MaxZoomLevel);
+
                 SetValueInternal(MinZoomLevelProperty, minZoomLevel);
             }
 
@@ -511,9 +534,10 @@ namespace MapControl
 
         private void MaxZoomLevelPropertyChanged(double maxZoomLevel)
         {
-            if (maxZoomLevel < MinZoomLevel || maxZoomLevel > MaximumZoomLevel)
+            if (maxZoomLevel < MinZoomLevel)
             {
-                maxZoomLevel = Math.Min(Math.Max(maxZoomLevel, MinZoomLevel), MaximumZoomLevel);
+                maxZoomLevel = MinZoomLevel;
+
                 SetValueInternal(MaxZoomLevelProperty, maxZoomLevel);
             }
 
@@ -528,6 +552,7 @@ namespace MapControl
             if (zoomLevel < MinZoomLevel || zoomLevel > MaxZoomLevel)
             {
                 zoomLevel = Math.Min(Math.Max(zoomLevel, MinZoomLevel), MaxZoomLevel);
+
                 SetValueInternal(property, zoomLevel);
             }
         }
@@ -592,6 +617,7 @@ namespace MapControl
             if (heading < 0d || heading > 360d)
             {
                 heading = ((heading % 360d) + 360d) % 360d;
+
                 SetValueInternal(property, heading);
             }
         }
@@ -665,20 +691,25 @@ namespace MapControl
         private void SetValueInternal(DependencyProperty property, object value)
         {
             internalPropertyChange = true;
+
             SetValue(property, value);
+
             internalPropertyChange = false;
         }
 
         private void UpdateTransform(bool resetTransformCenter = false, bool projectionChanged = false)
         {
-            var projection = MapProjection;
+            var viewScale = ViewTransform.ZoomLevelToScale(ZoomLevel);
             var center = transformCenter ?? Center;
+            var projection = MapProjection;
 
-            projection.SetViewportTransform(ProjectionCenter ?? Center, center, viewportCenter, ZoomLevel, Heading);
+            projection.Center = ProjectionCenter ?? Center;
+
+            ViewTransform.SetTransform(projection.LocationToMap(center), viewCenter, viewScale, Heading);
 
             if (transformCenter != null)
             {
-                center = projection.ViewportPointToLocation(new Point(RenderSize.Width / 2d, RenderSize.Height / 2d));
+                center = ViewToLocation(new Point(RenderSize.Width / 2d, RenderSize.Height / 2d));
                 center.Longitude = Location.NormalizeLongitude(center.Longitude);
 
                 if (center.Latitude < -projection.MaxLatitude || center.Latitude > projection.MaxLatitude)
@@ -697,17 +728,14 @@ namespace MapControl
                 if (resetTransformCenter)
                 {
                     ResetTransformCenter();
-                    projection.SetViewportTransform(ProjectionCenter ?? center, center, viewportCenter, ZoomLevel, Heading);
+
+                    projection.Center = ProjectionCenter ?? center;
+
+                    ViewTransform.SetTransform(projection.LocationToMap(center), viewCenter, viewScale, Heading);
                 }
             }
 
-            ViewportTransform.Matrix = projection.ViewportTransform;
-
-            var scale = projection.GetMapScale(center);
-            ScaleTransform.ScaleX = scale.X;
-            ScaleTransform.ScaleY = scale.Y;
-
-            RotateTransform.Angle = Heading;
+            SetViewScale(ViewTransform.Scale);
 
             OnViewportChanged(new ViewportChangedEventArgs(projectionChanged, Center.Longitude - centerLongitude));
 

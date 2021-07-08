@@ -1,22 +1,18 @@
 ﻿// XAML Map Control - https://github.com/ClemensFischer/XAML-Map-Control
-// © 2018 Clemens Fischer
+// © 2021 Clemens Fischer
 // Licensed under the Microsoft Public License (Ms-PL)
 
 using System;
 using System.IO;
 using System.Runtime.Caching;
-using System.Text;
 using System.Threading.Tasks;
-using System.Windows.Media;
-using System.Windows.Threading;
 
 namespace MapControl
 {
     public partial class TileImageLoader
     {
         /// <summary>
-        /// Default folder path where an ObjectCache instance may save cached data,
-        /// i.e. C:\ProgramData\MapControl\TileCache
+        /// Default folder path where an ObjectCache instance may save cached data, i.e. C:\ProgramData\MapControl\TileCache
         /// </summary>
         public static string DefaultCacheFolder
         {
@@ -24,82 +20,44 @@ namespace MapControl
         }
 
         /// <summary>
-        /// The ObjectCache used to cache tile images. The default is MemoryCache.Default.
+        /// An ObjectCache instance used to cache tile image data. The default value is MemoryCache.Default.
         /// </summary>
         public static ObjectCache Cache { get; set; } = MemoryCache.Default;
 
-        private async Task LoadCachedTileImageAsync(Tile tile, Uri uri, string cacheKey)
+
+        private static async Task LoadCachedTileAsync(Tile tile, Uri uri, string cacheKey)
         {
-            DateTime expiration;
-            var cacheBuffer = GetCachedImage(cacheKey, out expiration);
+            var cacheItem = Cache.Get(cacheKey) as Tuple<byte[], DateTime>;
+            var buffer = cacheItem?.Item1;
 
-            if (cacheBuffer == null || expiration < DateTime.UtcNow)
+            if (cacheItem == null || cacheItem.Item2 < DateTime.UtcNow)
             {
-                var result = await ImageLoader.LoadHttpStreamAsync(uri);
+                var response = await ImageLoader.GetHttpResponseAsync(uri).ConfigureAwait(false);
 
-                if (result != null) // download succeeded
+                if (response != null) // download succeeded
                 {
-                    cacheBuffer = null; // discard cached image
+                    buffer = response.Buffer; // may be null or empty when no tile available, but still be cached
 
-                    if (result.Item1 != null) // tile image available
-                    {
-                        using (var stream = result.Item1)
-                        {
-                            LoadTileImage(tile, stream);
-                            SetCachedImage(cacheKey, stream, GetExpiration(result.Item2));
-                        }
-                    }
+                    cacheItem = Tuple.Create(buffer, GetExpiration(response.MaxAge));
+
+                    Cache.Set(cacheKey, cacheItem, new CacheItemPolicy { AbsoluteExpiration = cacheItem.Item2 });
                 }
             }
+            //else System.Diagnostics.Debug.WriteLine($"Cached: {cacheKey}");
 
-            if (cacheBuffer != null)
+            if (buffer != null && buffer.Length > 0)
             {
-                using (var stream = new MemoryStream(cacheBuffer))
-                {
-                    LoadTileImage(tile, stream);
-                }
+                var image = await ImageLoader.LoadImageAsync(buffer).ConfigureAwait(false);
+
+                await tile.Image.Dispatcher.InvokeAsync(() => tile.SetImage(image));
             }
         }
 
-        private async Task LoadTileImageAsync(Tile tile, TileSource tileSource)
+        private static async Task LoadTileAsync(Tile tile, TileSource tileSource)
         {
-            SetTileImage(tile, await tileSource.LoadImageAsync(tile.XIndex, tile.Y, tile.ZoomLevel));
-        }
+            var image = await tileSource.LoadImageAsync(tile.XIndex, tile.Y, tile.ZoomLevel).ConfigureAwait(false);
 
-        private void LoadTileImage(Tile tile, Stream stream)
-        {
-            SetTileImage(tile, ImageLoader.LoadImage(stream));
-        }
-
-        private void SetTileImage(Tile tile, ImageSource imageSource)
-        {
-            tile.Image.Dispatcher.InvokeAsync(() => tile.SetImage(imageSource));
-        }
-
-        private static byte[] GetCachedImage(string cacheKey, out DateTime expiration)
-        {
-            var buffer = Cache.Get(cacheKey) as byte[];
-
-            if (buffer != null && buffer.Length >= 16 &&
-                Encoding.ASCII.GetString(buffer, buffer.Length - 16, 8) == "EXPIRES:")
-            {
-                expiration = new DateTime(BitConverter.ToInt64(buffer, buffer.Length - 8), DateTimeKind.Utc);
-            }
-            else
-            {
-                expiration = DateTime.MinValue;
-            }
-
-            return buffer;
-        }
-
-        private static void SetCachedImage(string cacheKey, MemoryStream stream, DateTime expiration)
-        {
-            stream.Seek(0, SeekOrigin.End);
-            stream.Write(Encoding.ASCII.GetBytes("EXPIRES:"), 0, 8);
-            stream.Write(BitConverter.GetBytes(expiration.Ticks), 0, 8);
-
-            Cache.Set(cacheKey, stream.ToArray(), new CacheItemPolicy { AbsoluteExpiration = expiration });
+            await tile.Image.Dispatcher.InvokeAsync(() => tile.SetImage(image));
         }
     }
 }

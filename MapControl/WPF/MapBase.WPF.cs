@@ -1,10 +1,9 @@
 ﻿// XAML Map Control - https://github.com/ClemensFischer/XAML-Map-Control
-// © 2018 Clemens Fischer
+// © 2021 Clemens Fischer
 // Licensed under the Microsoft Public License (Ms-PL)
 
 using System.Windows;
 using System.Windows.Controls;
-using System.Windows.Media;
 
 namespace MapControl
 {
@@ -43,21 +42,23 @@ namespace MapControl
                 0d, FrameworkPropertyMetadataOptions.BindsTwoWayByDefault,
                 (o, e) => ((MapBase)o).TargetHeadingPropertyChanged((double)e.NewValue)));
 
+        private static readonly DependencyPropertyKey ViewScalePropertyKey = DependencyProperty.RegisterReadOnly(
+            nameof(ViewScale), typeof(double), typeof(MapBase), new PropertyMetadata(0d));
+
+        public static readonly DependencyProperty ViewScaleProperty = ViewScalePropertyKey.DependencyProperty;
+
         private static readonly DependencyProperty CenterPointProperty = DependencyProperty.Register(
-            "CenterPoint", typeof(Point), typeof(MapBase),
-            new PropertyMetadata(new Point(), (o, e) => ((MapBase)o).CenterPointPropertyChanged((Point)e.NewValue)));
+            "CenterPoint", typeof(Point), typeof(MapBase), new PropertyMetadata(new Point(),
+                (o, e) =>
+                {
+                    var center = (Point)e.NewValue;
+                    ((MapBase)o).CenterPointPropertyChanged(new Location(center.Y, center.X));
+                }));
 
         static MapBase()
         {
             ClipToBoundsProperty.OverrideMetadata(typeof(MapBase), new FrameworkPropertyMetadata(true));
-            BackgroundProperty.OverrideMetadata(typeof(MapBase), new FrameworkPropertyMetadata(Brushes.Transparent));
-        }
-
-        public MapBase()
-        {
-            MapProjection = new WebMercatorProjection();
-            ScaleRotateTransform.Children.Add(ScaleTransform);
-            ScaleRotateTransform.Children.Add(RotateTransform);
+            DefaultStyleKeyProperty.OverrideMetadata(typeof(MapBase), new FrameworkPropertyMetadata(typeof(MapBase)));
         }
 
         protected override void OnRenderSizeChanged(SizeChangedInfo sizeInfo)
@@ -68,9 +69,9 @@ namespace MapControl
             UpdateTransform();
         }
 
-        private void CenterPointPropertyChanged(Point center)
+        private void SetViewScale(double scale)
         {
-            CenterPointPropertyChanged(new Location(center.Y, center.X));
+            SetValue(ViewScalePropertyKey, scale);
         }
     }
 }

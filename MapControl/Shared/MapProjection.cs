@@ -1,85 +1,78 @@
 ﻿// XAML Map Control - https://github.com/ClemensFischer/XAML-Map-Control
-// © 2018 Clemens Fischer
+// © 2021 Clemens Fischer
 // Licensed under the Microsoft Public License (Ms-PL)
 
 using System;
 using System.Globalization;
-#if WINDOWS_UWP
+#if WINUI || WINDOWS_UWP
 using Windows.Foundation;
-using Windows.UI.Xaml.Media;
 #else
 using System.Windows;
-using System.Windows.Media;
 #endif
 
 namespace MapControl
 {
     /// <summary>
-    /// Defines a map projection between geographic coordinates, cartesian map coordinates and viewport coordinates.
+    /// Defines a map projection between geographic coordinates and cartesian map coordinates.
     /// </summary>
     public abstract class MapProjection
     {
-        public const int TileSize = 256;
-        public const double PixelPerDegree = TileSize / 360d;
-
         public const double Wgs84EquatorialRadius = 6378137d;
-        public const double MetersPerDegree = Wgs84EquatorialRadius * Math.PI / 180d;
-
-        private Matrix inverseViewportTransformMatrix;
+        public const double Wgs84MetersPerDegree = Wgs84EquatorialRadius * Math.PI / 180d;
+        public const double Wgs84Flattening = 1d / 298.257223563;
+        public static readonly double Wgs84Eccentricity = Math.Sqrt((2d - Wgs84Flattening) * Wgs84Flattening);
 
         /// <summary>
-        /// Gets or sets the WMS 1.3.0 CRS Identifier.
+        /// Gets or sets the WMS 1.3.0 CRS identifier.
         /// </summary>
-        public string CrsId { get; set; }
+        public string CrsId { get; set; } = string.Empty;
+
+        /// <summary>
+        /// Gets or sets the projection center.
+        /// </summary>
+        public Location Center { get; set; } = new Location();
 
         /// <summary>
         /// Indicates if this is a normal cylindrical projection.
         /// </summary>
-        public bool IsCylindrical { get; protected set; } = false;
+        public virtual bool IsNormalCylindrical
+        {
+            get { return false; }
+        }
 
         /// <summary>
         /// Indicates if this is a web mercator projection, i.e. compatible with MapTileLayer.
         /// </summary>
-        public bool IsWebMercator { get; protected set; } = false;
-
-        /// <summary>
-        /// Gets the scale factor from geographic to cartesian coordinates, on the line of true scale of a
-        /// cylindrical projection (usually the equator), or at the projection center of an azimuthal projection.
-        /// </summary>
-        public double TrueScale { get; protected set; } = MetersPerDegree;
+        public virtual bool IsWebMercator
+        {
+            get { return false; }
+        }
 
         /// <summary>
         /// Gets the absolute value of the minimum and maximum latitude that can be transformed.
         /// </summary>
-        public double MaxLatitude { get; protected set; } = 90d;
-
-        /// <summary>
-        /// Gets the transform matrix from cartesian map coordinates to viewport coordinates (pixels).
-        /// </summary>
-        public Matrix ViewportTransform { get; private set; }
-
-        /// <summary>
-        /// Gets the scaling factor from cartesian map coordinates to viewport coordinates.
-        /// </summary>
-        public double ViewportScale { get; private set; }
-
-        /// <summary>
-        /// Gets the map scale at the specified Location as viewport coordinate units per meter (px/m).
-        /// </summary>
-        public virtual Vector GetMapScale(Location location)
+        public virtual double MaxLatitude
         {
-            return new Vector(ViewportScale, ViewportScale);
+            get { return 90d; }
+        }
+
+        /// <summary>
+        /// Gets the relative map scale at the specified Location.
+        /// </summary>
+        public virtual Vector GetRelativeScale(Location location)
+        {
+            return new Vector(1d, 1d);
         }
 
         /// <summary>
         /// Transforms a Location in geographic coordinates to a Point in cartesian map coordinates.
         /// </summary>
-        public abstract Point LocationToPoint(Location location);
+        public abstract Point LocationToMap(Location location);
 
         /// <summary>
         /// Transforms a Point in cartesian map coordinates to a Location in geographic coordinates.
         /// </summary>
-        public abstract Location PointToLocation(Point point);
+        public abstract Location MapToLocation(Point point);
 
         /// <summary>
         /// Transforms a BoundingBox in geographic coordinates to a Rect in cartesian map coordinates.
@@ -87,8 +80,8 @@ namespace MapControl
         public virtual Rect BoundingBoxToRect(BoundingBox boundingBox)
         {
             return new Rect(
-                LocationToPoint(new Location(boundingBox.South, boundingBox.West)),
-                LocationToPoint(new Location(boundingBox.North, boundingBox.East)));
+                LocationToMap(new Location(boundingBox.South, boundingBox.West)),
+                LocationToMap(new Location(boundingBox.North, boundingBox.East)));
         }
 
         /// <summary>
@@ -96,88 +89,29 @@ namespace MapControl
         /// </summary>
         public virtual BoundingBox RectToBoundingBox(Rect rect)
         {
-            var sw = PointToLocation(new Point(rect.X, rect.Y));
-            var ne = PointToLocation(new Point(rect.X + rect.Width, rect.Y + rect.Height));
+            var sw = MapToLocation(new Point(rect.X, rect.Y));
+            var ne = MapToLocation(new Point(rect.X + rect.Width, rect.Y + rect.Height));
 
             return new BoundingBox(sw.Latitude, sw.Longitude, ne.Latitude, ne.Longitude);
         }
 
         /// <summary>
-        /// Transforms a Location in geographic coordinates to a Point in viewport coordinates.
+        /// Gets the CRS parameter value for a WMS GetMap request.
         /// </summary>
-        public Point LocationToViewportPoint(Location location)
+        public virtual string GetCrsValue()
         {
-            return ViewportTransform.Transform(LocationToPoint(location));
+            return CrsId.StartsWith("AUTO:") || CrsId.StartsWith("AUTO2:")
+                ? string.Format(CultureInfo.InvariantCulture, "{0},1,{1},{2}", CrsId, Center.Longitude, Center.Latitude)
+                : CrsId;
         }
 
         /// <summary>
-        /// Transforms a Point in viewport coordinates to a Location in geographic coordinates.
+        /// Gets the BBOX parameter value for a WMS GetMap request.
         /// </summary>
-        public Location ViewportPointToLocation(Point point)
+        public virtual string GetBboxValue(Rect rect)
         {
-            return PointToLocation(inverseViewportTransformMatrix.Transform(point));
-        }
-
-        /// <summary>
-        /// Transforms a Rect in viewport coordinates to a BoundingBox in geographic coordinates.
-        /// </summary>
-        public BoundingBox ViewportRectToBoundingBox(Rect rect)
-        {
-            var transform = new MatrixTransform { Matrix = inverseViewportTransformMatrix };
-
-            return RectToBoundingBox(transform.TransformBounds(rect));
-        }
-
-        /// <summary>
-        /// Sets ViewportScale and ViewportTransform values.
-        /// </summary>
-        public virtual void SetViewportTransform(Location projectionCenter, Location mapCenter, Point viewportCenter, double zoomLevel, double heading)
-        {
-            ViewportScale = Math.Pow(2d, zoomLevel) * PixelPerDegree / TrueScale;
-
-            var center = LocationToPoint(mapCenter);
-            var matrix = CreateTransformMatrix(center, ViewportScale, -ViewportScale, heading, viewportCenter);
-
-            ViewportTransform = matrix;
-
-            matrix.Invert();
-            inverseViewportTransformMatrix = matrix;
-        }
-
-        /// <summary>
-        /// Gets a WMS query parameter string from the specified bounding box, e.g. "CRS=...&BBOX=...&WIDTH=...&HEIGHT=..."
-        /// </summary>
-        public virtual string WmsQueryParameters(BoundingBox boundingBox)
-        {
-            if (string.IsNullOrEmpty(CrsId) || !boundingBox.HasValidBounds)
-            {
-                return null;
-            }
-
-            var format = CrsId == "EPSG:4326"
-                ? "CRS={0}&BBOX={2},{1},{4},{3}&WIDTH={5}&HEIGHT={6}"
-                : "CRS={0}&BBOX={1},{2},{3},{4}&WIDTH={5}&HEIGHT={6}";
-            var rect = BoundingBoxToRect(boundingBox);
-            var width = (int)Math.Round(ViewportScale * rect.Width);
-            var height = (int)Math.Round(ViewportScale * rect.Height);
-
-            return string.Format(CultureInfo.InvariantCulture, format, CrsId,
-                rect.X, rect.Y, (rect.X + rect.Width), (rect.Y + rect.Height), width, height);
-        }
-
-        internal static Matrix CreateTransformMatrix(
-            Point translation1, double scale, double rotation, Point translation2)
-        {
-            return CreateTransformMatrix(translation1, scale, scale, rotation, translation2);
-        }
-
-        internal static Matrix CreateTransformMatrix(
-            Point translation1, double scaleX, double scaleY, double rotation, Point translation2)
-        {
-            var matrix = new Matrix(scaleX, 0d, 0d, scaleY, -translation1.X * scaleX, -translation1.Y * scaleY);
-            matrix.Rotate(rotation);
-            matrix.Translate(translation2.X, translation2.Y);
-            return matrix;
+            return string.Format(CultureInfo.InvariantCulture,
+                "{0},{1},{2},{3}", rect.X, rect.Y, (rect.X + rect.Width), (rect.Y + rect.Height));
         }
     }
 }

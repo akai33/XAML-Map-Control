@@ -1,9 +1,12 @@
 ﻿// XAML Map Control - https://github.com/ClemensFischer/XAML-Map-Control
-// © 2018 Clemens Fischer
+// © 2021 Clemens Fischer
 // Licensed under the Microsoft Public License (Ms-PL)
 
 using System;
-#if WINDOWS_UWP
+using System.Globalization;
+#if WINUI
+using Microsoft.UI.Xaml;
+#elif WINDOWS_UWP
 using Windows.UI.Xaml;
 #else
 using System.Windows;
@@ -30,7 +33,7 @@ namespace MapControl
 
         private double GetLineDistance()
         {
-            var pixelPerDegree = ParentMap.MapProjection.ViewportScale * ParentMap.MapProjection.TrueScale;
+            var pixelPerDegree = ParentMap.ViewTransform.Scale * MapProjection.Wgs84MetersPerDegree;
             var minDistance = MinLineDistance / pixelPerDegree;
             var scale = 1d;
 
@@ -53,17 +56,8 @@ namespace MapControl
 
         private static string GetLabelFormat(double lineDistance)
         {
-            if (lineDistance < 1d / 60d)
-            {
-                return "{0} {1}°{2:00}'{3:00}\"";
-            }
-            
-            if (lineDistance < 1d)
-            {
-                return "{0} {1}°{2:00}'";
-            }
-            
-            return "{0} {1}°";
+            return lineDistance < 1d / 60d ? "{0} {1}°{2:00}'{3:00}\""
+                 : lineDistance < 1d ? "{0} {1}°{2:00}'" : "{0} {1}°";
         }
 
         private static string GetLabelText(double value, string format, string hemispheres)
@@ -78,7 +72,8 @@ namespace MapControl
 
             var seconds = (int)Math.Round(value * 3600d);
 
-            return string.Format(format, hemisphere, seconds / 3600, (seconds / 60) % 60, seconds % 60);
+            return string.Format(CultureInfo.InvariantCulture,
+                format, hemisphere, seconds / 3600, seconds / 60 % 60, seconds % 60);
         }
     }
 }
