@@ -1,73 +1,64 @@
-﻿// XAML Map Control - https://github.com/ClemensFischer/XAML-Map-Control
-// © 2018 Clemens Fischer
-// Licensed under the Microsoft Public License (Ms-PL)
-
-using System;
-using System.Collections.Generic;
+﻿using System.Collections.Generic;
 using System.Collections.ObjectModel;
 using System.Collections.Specialized;
 using System.Linq;
-using System.Windows;
 
-namespace MapControl
+namespace MapControl;
+
+/// <summary>
+/// An ObservableCollection of IEnumerable of Location. PolygonCollection adds a CollectionChanged
+/// listener to each element that implements INotifyCollectionChanged and, when such an element changes,
+/// fires its own CollectionChanged event with NotifyCollectionChangedAction.Replace for that element.
+/// </summary>
+public partial class PolygonCollection : ObservableCollection<IEnumerable<Location>>
 {
-    /// <summary>
-    /// An ObservableCollection of IEnumerable of Location. PolygonCollection adds a CollectionChanged
-    /// listener to each element that implements INotifyCollectionChanged and, when such an element changes,
-    /// fires its own CollectionChanged event with NotifyCollectionChangedAction.Replace for that element.
-    /// </summary>
-    public class PolygonCollection : ObservableCollection<IEnumerable<Location>>, IWeakEventListener
+    private void PolygonChanged(object sender, NotifyCollectionChangedEventArgs e)
     {
-        public bool ReceiveWeakEvent(Type managerType, object sender, EventArgs e)
+        OnCollectionChanged(new NotifyCollectionChangedEventArgs(NotifyCollectionChangedAction.Replace, sender, sender));
+    }
+
+    protected override void InsertItem(int index, IEnumerable<Location> polygon)
+    {
+        if (polygon is INotifyCollectionChanged addedPolygon)
         {
-            OnCollectionChanged(new NotifyCollectionChangedEventArgs(NotifyCollectionChangedAction.Replace, sender, sender));
-            return true;
+            addedPolygon.CollectionChanged += PolygonChanged;
         }
 
-        protected override void InsertItem(int index, IEnumerable<Location> polygon)
+        base.InsertItem(index, polygon);
+    }
+
+    protected override void SetItem(int index, IEnumerable<Location> polygon)
+    {
+        if (this[index] is INotifyCollectionChanged removedPolygon)
         {
-            var observablePolygon = polygon as INotifyCollectionChanged;
-
-            if (observablePolygon != null)
-            {
-                CollectionChangedEventManager.AddListener(observablePolygon, this);
-            }
-
-            base.InsertItem(index, polygon);
+            removedPolygon.CollectionChanged -= PolygonChanged;
         }
 
-        protected override void SetItem(int index, IEnumerable<Location> polygon)
+        if (polygon is INotifyCollectionChanged addedPolygon)
         {
-            var observablePolygon = this[index] as INotifyCollectionChanged;
-
-            if (observablePolygon != null)
-            {
-                CollectionChangedEventManager.RemoveListener(observablePolygon, this);
-            }
-
-            base.SetItem(index, polygon);
+            addedPolygon.CollectionChanged += PolygonChanged;
         }
 
-        protected override void RemoveItem(int index)
+        base.SetItem(index, polygon);
+    }
+
+    protected override void RemoveItem(int index)
+    {
+        if (this[index] is INotifyCollectionChanged removedPolygon)
         {
-            var observablePolygon = this[index] as INotifyCollectionChanged;
-
-            if (observablePolygon != null)
-            {
-                CollectionChangedEventManager.RemoveListener(observablePolygon, this);
-            }
-
-            base.RemoveItem(index);
+            removedPolygon.CollectionChanged -= PolygonChanged;
         }
 
-        protected override void ClearItems()
-        {
-            foreach (var observablePolygon in this.OfType<INotifyCollectionChanged>())
-            {
-                CollectionChangedEventManager.RemoveListener(observablePolygon, this);
-            }
+        base.RemoveItem(index);
+    }
 
-            base.ClearItems();
+    protected override void ClearItems()
+    {
+        foreach (var polygon in this.OfType<INotifyCollectionChanged>())
+        {
+            polygon.CollectionChanged -= PolygonChanged;
         }
+
+        base.ClearItems();
     }
 }

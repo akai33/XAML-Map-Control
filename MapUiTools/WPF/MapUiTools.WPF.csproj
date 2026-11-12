@@ -1,0 +1,18 @@
+﻿<Project Sdk="Microsoft.NET.Sdk">
+    <PropertyGroup>
+        <TargetFrameworks>net10.0-windows;net472</TargetFrameworks>
+        <LangVersion Condition="'$(TargetFramework)'=='net472'">14.0</LangVersion>
+        <UseWPF>true</UseWPF>
+        <DefineConstants>WPF</DefineConstants>
+        <RootNamespace>MapControl.UiTools</RootNamespace>
+        <AssemblyTitle>XAML Map Control UI Tools Library for WPF</AssemblyTitle>
+    </PropertyGroup>
+
+    <ItemGroup>
+        <Compile Include="..\Shared\*.cs" />
+    </ItemGroup>
+
+    <ItemGroup>
+        <ProjectReference Include="..\..\MapControl\WPF\MapControl.WPF.csproj" />
+    </ItemGroup>
+</Project>

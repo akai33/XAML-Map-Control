@@ -1,160 +1,354 @@
-﻿// XAML Map Control - https://github.com/ClemensFischer/XAML-Map-Control
-// © 2018 Clemens Fischer
-// Licensed under the Microsoft Public License (Ms-PL)
-
+﻿using Microsoft.Extensions.Logging;
 using System;
 using System.Collections.Generic;
-using System.Diagnostics;
+using System.Globalization;
 using System.Linq;
 using System.Threading.Tasks;
-#if WINDOWS_UWP
-using Windows.Data.Xml.Dom;
-using Windows.UI.Xaml;
-using Windows.UI.Xaml.Media;
-#else
-using System.Xml;
+using System.Xml.Linq;
+#if WPF
 using System.Windows;
 using System.Windows.Media;
+#elif UWP
+using Windows.UI.Xaml;
+using Windows.UI.Xaml.Media;
+#elif WINUI
+using Microsoft.UI.Xaml;
+using Microsoft.UI.Xaml.Media;
+#elif AVALONIA
+using Avalonia;
+using Avalonia.Interactivity;
+using ImageSource = Avalonia.Media.IImage;
 #endif
 
-namespace MapControl
+namespace MapControl;
+
+/// <summary>
+/// Displays a single map image from a Web Map Service (WMS).
+/// </summary>
+public partial class WmsImageLayer : MapImageLayer
 {
-    public partial class WmsImageLayer : MapImageLayer
+    private static ILogger Logger => field ??= ImageLoader.LoggerFactory.CreateLogger(typeof(WmsImageLayer));
+
+    public static readonly DependencyProperty ServiceUriProperty =
+        DependencyPropertyHelper.Register<WmsImageLayer, Uri>(nameof(ServiceUri), null,
+            async (layer, oldValue, newValue) => await layer.UpdateImageAsync());
+
+    public static readonly DependencyProperty RequestStylesProperty =
+        DependencyPropertyHelper.Register<WmsImageLayer, string>(nameof(RequestStyles), "",
+            async (layer, oldValue, newValue) => await layer.UpdateImageAsync());
+
+    public static readonly DependencyProperty RequestLayersProperty =
+        DependencyPropertyHelper.Register<WmsImageLayer, string>(nameof(RequestLayers), null,
+            async (layer, oldValue, newValue) => await layer.UpdateImageAsync());
+
+    /// <summary>
+    /// The base request URL. 
+    /// </summary>
+    public Uri ServiceUri
     {
-        public static readonly DependencyProperty ServiceUriProperty = DependencyProperty.Register(
-            nameof(ServiceUri), typeof(Uri), typeof(WmsImageLayer),
-            new PropertyMetadata(null, async (o, e) => await ((WmsImageLayer)o).UpdateImageAsync()));
+        get => (Uri)GetValue(ServiceUriProperty);
+        set => SetValue(ServiceUriProperty, value);
+    }
 
-        public static readonly DependencyProperty LayersProperty = DependencyProperty.Register(
-            nameof(Layers), typeof(string), typeof(WmsImageLayer),
-            new PropertyMetadata(string.Empty, async (o, e) => await ((WmsImageLayer)o).UpdateImageAsync()));
+    /// <summary>
+    /// Comma-separated sequence of requested WMS Styles. Default is an empty string.
+    /// </summary>
+    public string RequestStyles
+    {
+        get => (string)GetValue(RequestStylesProperty);
+        set => SetValue(RequestStylesProperty, value);
+    }
 
-        public static readonly DependencyProperty StylesProperty = DependencyProperty.Register(
-            nameof(Styles), typeof(string), typeof(WmsImageLayer),
-            new PropertyMetadata(string.Empty, async (o, e) => await ((WmsImageLayer)o).UpdateImageAsync()));
+    /// <summary>
+    /// Comma-separated sequence of WMS Layer names to be displayed. If not set, the default Layer is displayed.
+    /// </summary>
+    public string RequestLayers
+    {
+        get => (string)GetValue(RequestLayersProperty);
+        set => SetValue(RequestLayersProperty, value);
+    }
 
-        public static readonly DependencyProperty FormatProperty = DependencyProperty.Register(
-            nameof(Format), typeof(string), typeof(WmsImageLayer),
-            new PropertyMetadata("image/png", async (o, e) => await ((WmsImageLayer)o).UpdateImageAsync()));
+    /// <summary>
+    /// Gets a collection of all Layer names available in a WMS.
+    /// </summary>
+    public IReadOnlyCollection<string> AvailableLayers { get; private set; }
 
-        public Uri ServiceUri
+    /// <summary>
+    /// Gets a collection of all CRSs supported by a WMS.
+    /// </summary>
+    public IReadOnlyCollection<string> SupportedCrsIds { get; private set; }
+
+    private bool HasLayer =>
+        RequestLayers != null ||
+        AvailableLayers?.Count > 0 ||
+        ServiceUri.Query?.IndexOf("LAYERS=", StringComparison.OrdinalIgnoreCase) > 0;
+
+    public WmsImageLayer()
+    {
+        Loaded += OnLoaded;
+    }
+
+    private async void OnLoaded(object sender, RoutedEventArgs e)
+    {
+        Loaded -= OnLoaded;
+
+        if (ServiceUri != null && !HasLayer)
         {
-            get { return (Uri)GetValue(ServiceUriProperty); }
-            set { SetValue(ServiceUriProperty, value); }
-        }
+            await InitializeAsync();
 
-        public string Layers
-        {
-            get { return (string)GetValue(LayersProperty); }
-            set { SetValue(LayersProperty, value); }
-        }
-
-        public string Styles
-        {
-            get { return (string)GetValue(StylesProperty); }
-            set { SetValue(StylesProperty, value); }
-        }
-
-        public string Format
-        {
-            get { return (string)GetValue(FormatProperty); }
-            set { SetValue(FormatProperty, value); }
-        }
-
-        public async Task<IList<string>> GetLayerNamesAsync()
-        {
-            IList<string> layerNames = null;
-
-            if (ServiceUri != null)
+            if (AvailableLayers != null && AvailableLayers.Count > 0)
             {
-                var uri = GetRequestUri("GetCapabilities");
-
-                try
-                {
-                    var document = await XmlDocument.LoadFromUriAsync(new Uri(uri.Replace(" ", "%20")));
-                    layerNames = new List<string>();
-
-                    var capability = ChildElements(document.DocumentElement, "Capability").FirstOrDefault();
-                    if (capability != null)
-                    {
-                        var rootLayer = ChildElements(capability, "Layer").FirstOrDefault();
-                        if (rootLayer != null)
-                        {
-                            foreach (var layer in ChildElements(rootLayer, "Layer"))
-                            {
-                                var name = ChildElements(layer, "Name").FirstOrDefault();
-                                if (name != null)
-                                {
-                                    layerNames.Add(name.InnerText);
-                                }
-                            }
-                        }
-                    }
-                }
-                catch (Exception ex)
-                {
-                    Debug.WriteLine("WmsImageLayer: {0}: {1}", uri, ex.Message);
-                }
+                await UpdateImageAsync();
             }
-
-            return layerNames;
         }
+    }
 
-        protected override async Task<ImageSource> GetImageAsync(BoundingBox boundingBox)
+    /// <summary>
+    /// Initializes the AvailableLayers and SupportedCrsIds properties.
+    /// Calling this method is only necessary when no layer name is known in advance.
+    /// It is called internally in a Loaded event handler when the RequestLayers and AvailableLayers
+    /// properties are null and the ServiceUri.Query part does not contain a LAYERS parameter.
+    /// </summary>
+    public async Task InitializeAsync()
+    {
+        var capabilities = await GetCapabilitiesAsync();
+
+        if (capabilities != null)
         {
-            ImageSource imageSource = null;
-            var projectionParameters = ParentMap.MapProjection.WmsQueryParameters(boundingBox);
+            var ns = capabilities.Name.Namespace;
+            var capability = capabilities.Element(ns + "Capability");
 
-            if (ServiceUri != null && !string.IsNullOrEmpty(projectionParameters))
-            {
-                var uri = GetRequestUri("GetMap&" + projectionParameters);
+            AvailableLayers = capability
+                .Descendants(ns + "Layer")
+                .Select(e => e.Element(ns + "Name")?.Value)
+                .Where(n => !string.IsNullOrEmpty(n))
+                .ToList();
 
-                if (uri.IndexOf("LAYERS=", StringComparison.OrdinalIgnoreCase) < 0 && Layers != null)
-                {
-                    uri += "&LAYERS=" + Layers;
-                }
-
-                if (uri.IndexOf("STYLES=", StringComparison.OrdinalIgnoreCase) < 0 && Styles != null)
-                {
-                    uri += "&STYLES=" + Styles;
-                }
-
-                if (uri.IndexOf("FORMAT=", StringComparison.OrdinalIgnoreCase) < 0 && Format != null)
-                {
-                    uri += "&FORMAT=" + Format;
-                }
-
-                imageSource = await ImageLoader.LoadImageAsync(new Uri(uri.Replace(" ", "%20")));
-            }
-
-            return imageSource;
+            SupportedCrsIds = capability
+                .Descendants(ns + "Layer")
+                .Descendants(ns + "CRS")
+                .Select(e => e.Value)
+                .ToList();
         }
+    }
 
-        private string GetRequestUri(string request)
+    /// <summary>
+    /// Loads an XElement from the URL returned by GetCapabilitiesRequestUri().
+    /// </summary>
+    public async Task<XElement> GetCapabilitiesAsync()
+    {
+        XElement element = null;
+
+        if (ServiceUri != null)
         {
-            var uri = ServiceUri.ToString();
+            var uri = GetCapabilitiesRequestUri();
 
-            if (!uri.EndsWith("?") && !uri.EndsWith("&"))
+            try
             {
-                uri += !uri.Contains("?") ? "?" : "&";
-            }
+                using var stream = await ImageLoader.HttpClient.GetStreamAsync(uri);
 
-            if (uri.IndexOf("SERVICE=", StringComparison.OrdinalIgnoreCase) < 0)
+                element = await XDocument.LoadRootElementAsync(stream);
+            }
+            catch (Exception ex)
             {
-                uri += "SERVICE=WMS&";
+                Logger.LogError(ex, "Failed reading capabilities from {Uri}", uri);
             }
-
-            if (uri.IndexOf("VERSION=", StringComparison.OrdinalIgnoreCase) < 0)
-            {
-                uri += "VERSION=1.3.0&";
-            }
-
-            return uri + "REQUEST=" + request;
         }
 
-        private static IEnumerable<XmlElement> ChildElements(XmlElement element, string name)
+        return element;
+    }
+
+    /// <summary>
+    /// Gets a response string from the URL returned by GetFeatureInfoRequestUri().
+    /// </summary>
+    public async Task<string> GetFeatureInfoAsync(Point position, string format = "text/plain")
+    {
+        string response = null;
+
+        if (ServiceUri != null && HasLayer &&
+            ParentMap != null && ParentMap.InsideViewBounds(position) &&
+            (SupportedCrsIds == null || SupportedCrsIds.Contains(ParentMap.MapProjection.CrsId)))
         {
-            return element.ChildNodes.OfType<XmlElement>().Where(e => (string)e.LocalName == name);
+            var uri = GetFeatureInfoRequestUri(position, format);
+
+            try
+            {
+                response = await ImageLoader.HttpClient.GetStringAsync(uri);
+            }
+            catch (Exception ex)
+            {
+                Logger.LogError(ex, "Failed reading feature info from {Uri}", uri);
+            }
         }
+
+        return response;
+    }
+
+    /// <summary>
+    /// Loads an ImageSource from the URL returned by GetMapRequestUri().
+    /// </summary>
+    protected override async Task<ImageSource> GetImageAsync(Rect bbox, IProgress<double> progress)
+    {
+        ImageSource image = null;
+
+        if (ServiceUri != null && HasLayer &&
+            (SupportedCrsIds == null || SupportedCrsIds.Contains(ParentMap.MapProjection.CrsId)))
+        {
+            var xMin = -180d * MapProjection.Wgs84MeterPerDegree;
+            var xMax = 180d * MapProjection.Wgs84MeterPerDegree;
+
+            if (!ParentMap.MapProjection.IsNormalCylindrical ||
+                bbox.X >= xMin && bbox.X + bbox.Width <= xMax)
+            {
+                var uri = GetMapRequestUri(bbox);
+
+                image = await ImageLoader.LoadImageAsync(uri, progress);
+            }
+            else
+            {
+                var x = bbox.X;
+
+                if (x < xMin)
+                {
+                    x += xMax - xMin;
+                }
+
+                var width1 = Math.Floor(xMax * 1e3) / 1e3 - x; // round down xMax to avoid gap between images
+                var width2 = bbox.Width - width1;
+                var bbox1 = new Rect(x, bbox.Y, width1, bbox.Height);
+                var bbox2 = new Rect(xMin, bbox.Y, width2, bbox.Height);
+                var uri1 = GetMapRequestUri(bbox1);
+                var uri2 = GetMapRequestUri(bbox2);
+
+                image = await ImageLoader.LoadMergedImageAsync(uri1, uri2, progress);
+            }
+        }
+
+        return image;
+    }
+
+    /// <summary>
+    /// Returns a GetCapabilities request URL string.
+    /// </summary>
+    protected virtual Uri GetCapabilitiesRequestUri()
+    {
+        return GetRequestUri(new Dictionary<string, string>
+        {
+            { "SERVICE", "WMS" },
+            { "VERSION", "1.3.0" },
+            { "REQUEST", "GetCapabilities" }
+        });
+    }
+
+    /// <summary>
+    /// Returns a GetMap request URL string.
+    /// </summary>
+    protected virtual Uri GetMapRequestUri(Rect bbox)
+    {
+        var width = ParentMap.ViewTransform.Scale * bbox.Width;
+        var height = ParentMap.ViewTransform.Scale * bbox.Height;
+
+        return GetRequestUri(new Dictionary<string, string>
+        {
+            { "SERVICE", "WMS" },
+            { "VERSION", "1.3.0" },
+            { "REQUEST", "GetMap" },
+            { "LAYERS", RequestLayers ?? AvailableLayers?.FirstOrDefault() ?? "" },
+            { "STYLES", RequestStyles ?? "" },
+            { "FORMAT", "image/png" },
+            { "CRS", ParentMap.MapProjection.CrsId },
+            { "BBOX", GetBboxValue(bbox) },
+            { "WIDTH", Math.Ceiling(width).ToString("F0") },
+            { "HEIGHT", Math.Ceiling(height).ToString("F0") }
+        });
+    }
+
+    /// <summary>
+    /// Returns a GetFeatureInfo request URL string.
+    /// </summary>
+    protected virtual Uri GetFeatureInfoRequestUri(Point position, string format)
+    {
+        var width = ParentMap.ActualWidth;
+        var height = ParentMap.ActualHeight;
+        var bbox = ParentMap.ViewTransform.ViewToMapBounds(new Rect(0d, 0d, width, height));
+
+        if (ParentMap.ViewTransform.Rotation != 0d)
+        {
+            width = ParentMap.ViewTransform.Scale * bbox.Width;
+            height = ParentMap.ViewTransform.Scale * bbox.Height;
+
+            var transform = new Matrix(1d, 0d, 0d, 1d, -ParentMap.ActualWidth / 2d, -ParentMap.ActualHeight / 2d);
+            transform.Rotate(-ParentMap.ViewTransform.Rotation);
+            transform.Translate(width / 2d, height / 2d);
+
+            position = transform.Transform(position);
+        }
+
+        var queryParameters = new Dictionary<string, string>
+        {
+            { "SERVICE", "WMS" },
+            { "VERSION", "1.3.0" },
+            { "REQUEST", "GetFeatureInfo" },
+            { "LAYERS", RequestLayers ?? AvailableLayers?.FirstOrDefault() ?? "" },
+            { "STYLES", RequestStyles ?? "" },
+            { "INFO_FORMAT", format },
+            { "CRS", ParentMap.MapProjection.CrsId },
+            { "BBOX", GetBboxValue(bbox) },
+            { "WIDTH", Math.Ceiling(width).ToString("F0") },
+            { "HEIGHT", Math.Ceiling(height).ToString("F0") },
+            { "I", position.X.ToString("F0") },
+            { "J", position.Y.ToString("F0") }
+        };
+
+        // GetRequestUri may modify queryParameters["LAYERS"].
+        //
+        var uriBuilder = new UriBuilder(GetRequestUri(queryParameters));
+
+        uriBuilder.Query += "&QUERY_LAYERS=" + queryParameters["LAYERS"];
+
+        return uriBuilder.Uri;
+    }
+
+    protected virtual Uri GetRequestUri(IDictionary<string, string> queryParameters)
+    {
+        var query = ServiceUri.Query;
+
+        if (!string.IsNullOrEmpty(query))
+        {
+            // Parameters from ServiceUri.Query take higher precedence than queryParameters.
+            //
+            foreach (var param in query.Substring(1).Split('&'))
+            {
+                var pair = param.Split('=');
+                queryParameters[pair[0]] = pair.Length > 1 ? pair[1] : "";
+            }
+        }
+
+        query = string.Join("&", queryParameters.Select(kv => kv.Key + "=" + kv.Value));
+
+        return new Uri(ServiceUri.GetLeftPart(UriPartial.Path) + "?" + query);
+    }
+
+    protected virtual string GetBboxValue(Rect bbox)
+    {
+        var crs = ParentMap.MapProjection.CrsId;
+        var format = "{0:0.###},{1:0.###},{2:0.###},{3:0.###}";
+        var x1 = bbox.X;
+        var y1 = bbox.Y;
+        var x2 = bbox.X + bbox.Width;
+        var y2 = bbox.Y + bbox.Height;
+
+        if (crs == "CRS:84" || crs == "EPSG:4326")
+        {
+            format = crs == "CRS:84"
+                ? "{0:0.########},{1:0.########},{2:0.########},{3:0.########}"
+                : "{1:0.########},{0:0.########},{3:0.########},{2:0.########}";
+            x1 /= MapProjection.Wgs84MeterPerDegree;
+            y1 /= MapProjection.Wgs84MeterPerDegree;
+            x2 /= MapProjection.Wgs84MeterPerDegree;
+            y2 /= MapProjection.Wgs84MeterPerDegree;
+        }
+
+        return string.Format(CultureInfo.InvariantCulture, format, x1, y1, x2, y2);
     }
 }

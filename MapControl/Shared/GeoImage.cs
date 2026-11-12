@@ -1,0 +1,211 @@
+﻿using Microsoft.Extensions.Logging;
+using System;
+using System.Globalization;
+using System.IO;
+using System.Threading.Tasks;
+#if WPF
+using System.Windows;
+using System.Windows.Controls;
+using System.Windows.Media;
+using System.Windows.Media.Imaging;
+using Shape = System.Windows.Shapes.Shape;
+#elif UWP
+using Windows.UI.Xaml;
+using Windows.UI.Xaml.Controls;
+using Windows.UI.Xaml.Media;
+using Windows.UI.Xaml.Media.Imaging;
+using Shape = Windows.UI.Xaml.Shapes.Shape;
+#elif WINUI
+using Microsoft.UI.Xaml;
+using Microsoft.UI.Xaml.Controls;
+using Microsoft.UI.Xaml.Media;
+using Microsoft.UI.Xaml.Media.Imaging;
+using Shape = Microsoft.UI.Xaml.Shapes.Shape;
+#elif AVALONIA
+using Avalonia;
+using Avalonia.Controls;
+using Avalonia.Media;
+using Shape = Avalonia.Controls.Shapes.Shape;
+using ImageSource = Avalonia.Media.IImage;
+using BitmapSource = Avalonia.Media.Imaging.Bitmap;
+#endif
+
+namespace MapControl;
+
+public static partial class GeoImage
+{
+    private class GeoBitmap
+    {
+        public GeoBitmap(ImageSource image, int width, int height, Matrix transform, MapProjection projection)
+        {
+            ImageSource = image;
+
+            var p1 = transform.Transform(new Point());
+            var p2 = transform.Transform(new Point(width, height));
+
+            if (projection != null)
+            {
+                var sw = projection.MapToLocation(p1);
+                var ne = projection.MapToLocation(p2);
+                BoundingBox = new BoundingBox(sw.Latitude, sw.Longitude, ne.Latitude, ne.Longitude);
+            }
+            else
+            {
+                BoundingBox = new BoundingBox(p1.Y, p1.X, p2.Y, p2.X);
+            }
+        }
+
+        public ImageSource ImageSource { get; }
+        public BoundingBox BoundingBox { get; }
+    }
+
+    private const ushort ProjectedCRSGeoKey = 3072;
+    private const ushort GeoKeyDirectoryTag = 34735;
+    private const ushort ModelPixelScaleTag = 33550;
+    private const ushort ModelTiePointTag = 33922;
+    private const ushort ModelTransformationTag = 34264;
+    private const ushort NoDataTag = 42113;
+
+    private static string QueryString(ushort tag) => $"/ifd/{{ushort={tag}}}";
+
+    private static ILogger Logger => field ??= ImageLoader.LoggerFactory.CreateLogger(typeof(GeoImage));
+
+    public static readonly DependencyProperty SourcePathProperty =
+        DependencyPropertyHelper.RegisterAttached<string>("SourcePath", typeof(GeoImage), null,
+            async (element, oldValue, newValue) => await LoadGeoImage(element, newValue));
+
+    public static string GetSourcePath(FrameworkElement image)
+    {
+        return (string)image.GetValue(SourcePathProperty);
+    }
+
+    public static void SetSourcePath(FrameworkElement image, string value)
+    {
+        image.SetValue(SourcePathProperty, value);
+    }
+
+    public static async Task<Image> CreateAsync(string sourcePath)
+    {
+        var image = new Image();
+
+        await LoadGeoImage(image, sourcePath);
+
+        return image;
+    }
+
+    public static Task LoadGeoImageAsync(this Image image, string sourcePath)
+    {
+        return LoadGeoImage(image, sourcePath);
+    }
+
+    public static Task LoadGeoImageAsync(this Shape shape, string sourcePath)
+    {
+        return LoadGeoImage(shape, sourcePath);
+    }
+
+    private static async Task LoadGeoImage(FrameworkElement element, string sourcePath)
+    {
+        if (!string.IsNullOrEmpty(sourcePath))
+        {
+            try
+            {
+                var geoBitmap = await LoadGeoBitmap(sourcePath);
+
+                if (element is Image image)
+                {
+                    image.Stretch = Stretch.Fill;
+                    image.Source = geoBitmap.ImageSource;
+                }
+                else if (element is Shape shape)
+                {
+                    shape.Stretch = Stretch.Fill;
+                    shape.Fill = new ImageBrush
+                    {
+                        Stretch = Stretch.Fill,
+#if AVALONIA
+                        Source = (IImageBrushSource)geoBitmap.ImageSource
+#else
+                        ImageSource = geoBitmap.ImageSource
+#endif
+                    };
+                }
+
+                MapPanel.SetBoundingBox(element, geoBitmap.BoundingBox);
+            }
+            catch (Exception ex)
+            {
+                Logger.LogError(ex, "Failed loading from {Path}", sourcePath);
+            }
+        }
+    }
+
+    private static async Task<GeoBitmap> LoadGeoBitmap(string sourcePath)
+    {
+        var ext = Path.GetExtension(sourcePath);
+
+        if (ext.Length >= 4)
+        {
+            var dir = Path.GetDirectoryName(sourcePath);
+            var file = Path.GetFileNameWithoutExtension(sourcePath);
+            var worldFilePath = Path.Combine(dir, file + ext.Remove(2, 1) + "w");
+
+            if (File.Exists(worldFilePath))
+            {
+                var transform = await ReadWorldFileMatrix(worldFilePath);
+                var bitmap = (BitmapSource)await ImageLoader.LoadImageAsync(sourcePath);
+#if AVALONIA
+                return new GeoBitmap(bitmap, bitmap.PixelSize.Width, bitmap.PixelSize.Height, transform, null);
+#else
+                return new GeoBitmap(bitmap, bitmap.PixelWidth, bitmap.PixelHeight, transform, null);
+#endif
+            }
+        }
+
+        return await LoadGeoTiff(sourcePath);
+    }
+
+    private static async Task<Matrix> ReadWorldFileMatrix(string worldFilePath)
+    {
+        using var fileStream = File.OpenRead(worldFilePath);
+        using var streamReader = new StreamReader(fileStream);
+
+        var parameters = new double[6];
+        var index = 0;
+        string line;
+
+        while (index < 6 &&
+            (line = await streamReader.ReadLineAsync()) != null &&
+            double.TryParse(line, NumberStyles.Float, CultureInfo.InvariantCulture, out double parameter))
+        {
+            parameters[index++] = parameter;
+        }
+
+        if (index != 6)
+        {
+            throw new ArgumentException($"Insufficient number of parameters in world file {worldFilePath}.");
+        }
+
+        return new Matrix(  // https://en.wikipedia.org/wiki/World_file
+            parameters[0],  // line 1: A
+            parameters[1],  // line 2: D
+            parameters[2],  // line 3: B
+            parameters[3],  // line 4: E
+            parameters[4],  // line 5: C
+            parameters[5]); // line 6: F
+    }
+
+    private static MapProjection GetProjection(short[] geoKeyDirectory)
+    {
+        for (var i = 4; i < geoKeyDirectory.Length - 3; i += 4)
+        {
+            if (geoKeyDirectory[i] == ProjectedCRSGeoKey && geoKeyDirectory[i + 1] == 0)
+            {
+                var epsgCode = geoKeyDirectory[i + 3];
+
+                return MapProjection.Parse($"EPSG:{epsgCode}");
+            }
+        }
+
+        return null;
+    }
+}

@@ -1,29 +1,19 @@
-﻿// XAML Map Control - https://github.com/ClemensFischer/XAML-Map-Control
-// © 2018 Clemens Fischer
-// Licensed under the Microsoft Public License (Ms-PL)
+﻿using System;
 
-using System;
+namespace MapControl;
 
-namespace MapControl
+public class ViewportChangedEventArgs(bool projectionChanged = false, bool transformCenterChanged = false) : EventArgs
 {
-    public class ViewportChangedEventArgs : EventArgs
-    {
-        public ViewportChangedEventArgs(bool projectionChanged = false, double longitudeOffset = 0d)
-        {
-            ProjectionChanged = projectionChanged;
-            LongitudeOffset = longitudeOffset;
-        }
+    /// <summary>
+    /// Indicates that the map projection has changed. Used to control when
+    /// a MapTileLayer or a MapImageLayer should be updated immediately,
+    /// or MapPath Data in projected map coordinates should be recalculated.
+    /// </summary>
+    public bool ProjectionChanged => projectionChanged;
 
-        /// <summary>
-        /// Indicates if the map projection has changed, i.e. if a MapTileLayer or MapImageLayer should
-        /// be updated immediately, or MapShape Data in cartesian map coordinates should be recalculated.
-        /// </summary>
-        public bool ProjectionChanged { get; }
-
-        /// <summary>
-        /// Offset of the map center longitude value from the previous viewport.
-        /// Used to detect if the map center has moved across 180° longitude.
-        /// </summary>
-        public double LongitudeOffset { get; }
-    }
+    /// <summary>
+    /// Indicates that the view transform center has moved across 180° longitude.
+    /// Used to control when a MapTileLayer should be updated immediately.
+    /// </summary>
+    public bool TransformCenterChanged => transformCenterChanged;
 }

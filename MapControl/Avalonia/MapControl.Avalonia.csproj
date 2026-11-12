@@ -1,0 +1,23 @@
+﻿<Project Sdk="Microsoft.NET.Sdk">
+    <PropertyGroup>
+        <TargetFramework>net10.0</TargetFramework>
+        <DefineConstants>AVALONIA</DefineConstants>
+        <RootNamespace>MapControl</RootNamespace>
+        <AssemblyTitle>XAML Map Control Library for Avalonia UI</AssemblyTitle>
+        <GeneratePackageOnBuild>$(GeneratePackage)</GeneratePackageOnBuild>
+        <PackageId>XAML.MapControl.Avalonia</PackageId>
+        <Title>$(AssemblyTitle)</Title>
+        <Description>A set of Avalonia UI controls for rendering raster maps from different providers like OpenStreetMap and various types of map overlays</Description>
+        <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+    </PropertyGroup>
+
+    <ItemGroup>
+        <Compile Include="..\Shared\*.cs" />
+    </ItemGroup>
+
+    <ItemGroup>
+        <PackageReference Include="Avalonia" Version="12.1.6" />
+        <PackageReference Include="Microsoft.Extensions.Caching.Abstractions" Version="11.0.0" />
+        <PackageReference Include="Microsoft.Extensions.Caching.Memory" Version="11.0.0" />
+    </ItemGroup>
+</Project>

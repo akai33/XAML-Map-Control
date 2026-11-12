@@ -1,345 +1,237 @@
-﻿// XAML Map Control - https://github.com/ClemensFischer/XAML-Map-Control
-// © 2018 Clemens Fischer
-// Licensed under the Microsoft Public License (Ms-PL)
-
-using System;
-using System.Diagnostics;
+﻿using System;
 using System.Linq;
 using System.Threading.Tasks;
-#if WINDOWS_UWP
-using Windows.Foundation;
-using Windows.UI.Xaml;
-using Windows.UI.Xaml.Controls;
-using Windows.UI.Xaml.Media;
-using Windows.UI.Xaml.Media.Animation;
-#else
+#if WPF
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Media;
-using System.Windows.Media.Animation;
 using System.Windows.Threading;
+#elif UWP
+using Windows.UI.Xaml;
+using Windows.UI.Xaml.Controls;
+using Windows.UI.Xaml.Media;
+#elif WINUI
+using Microsoft.UI.Xaml;
+using Microsoft.UI.Xaml.Controls;
+using Microsoft.UI.Xaml.Media;
+#elif AVALONIA
+using Avalonia;
+using Avalonia.Controls;
+using Avalonia.Media;
+using Avalonia.Threading;
+using Brush = Avalonia.Media.IBrush;
+using ImageSource = Avalonia.Media.IImage;
 #endif
 
-namespace MapControl
+namespace MapControl;
+
+/// <summary>
+/// Displays a single map image, e.g. from a Web Map Service (WMS).
+/// The image must be provided by the abstract GetImageAsync() method.
+/// </summary>
+public abstract partial class MapImageLayer : MapPanel, IMapLayer
 {
-    /// <summary>
-    /// Map image layer. Fills the entire viewport with a map image, e.g. provided by a Web Map Service (WMS).
-    /// The image must be provided by the abstract GetImageAsync method.
-    /// </summary>
-    public abstract class MapImageLayer : MapPanel, IMapLayer
+    public static readonly DependencyProperty DescriptionProperty =
+        DependencyPropertyHelper.Register<MapImageLayer, string>(nameof(Description));
+
+    public static readonly DependencyProperty RelativeImageSizeProperty =
+        DependencyPropertyHelper.Register<MapImageLayer, double>(nameof(RelativeImageSize), 1d);
+
+    public static readonly DependencyProperty UpdateIntervalProperty =
+        DependencyPropertyHelper.Register<MapImageLayer, TimeSpan>(nameof(UpdateInterval), TimeSpan.FromMilliseconds(200),
+            (layer, oldValue, newValue) => layer.updateTimer.Interval = newValue);
+
+    public static readonly DependencyProperty UpdateWhileViewportChangingProperty =
+        DependencyPropertyHelper.Register<MapImageLayer, bool>(nameof(UpdateWhileViewportChanging));
+
+    public static readonly DependencyProperty MapBackgroundProperty =
+        DependencyPropertyHelper.Register<MapImageLayer, Brush>(nameof(MapBackground));
+
+    public static readonly DependencyProperty MapForegroundProperty =
+        DependencyPropertyHelper.Register<MapImageLayer, Brush>(nameof(MapForeground));
+
+    public static readonly DependencyProperty LoadingProgressProperty =
+        DependencyPropertyHelper.Register<MapImageLayer, double>(nameof(LoadingProgress), 1d);
+
+    private readonly Progress<double> loadingProgress;
+    private readonly DispatcherTimer updateTimer;
+    private bool updateInProgress;
+
+    public MapImageLayer()
     {
-        public static readonly DependencyProperty MinLatitudeProperty = DependencyProperty.Register(
-            nameof(MinLatitude), typeof(double), typeof(MapImageLayer), new PropertyMetadata(double.NaN));
+        IsHitTestVisible = false;
 
-        public static readonly DependencyProperty MaxLatitudeProperty = DependencyProperty.Register(
-            nameof(MaxLatitude), typeof(double), typeof(MapImageLayer), new PropertyMetadata(double.NaN));
+        loadingProgress = new Progress<double>(p => SetValue(LoadingProgressProperty, p));
 
-        public static readonly DependencyProperty MinLongitudeProperty = DependencyProperty.Register(
-            nameof(MinLongitude), typeof(double), typeof(MapImageLayer), new PropertyMetadata(double.NaN));
+        updateTimer = new DispatcherTimer { Interval = UpdateInterval };
+        updateTimer.Tick += async (_, _) => await UpdateImageAsync();
+    }
 
-        public static readonly DependencyProperty MaxLongitudeProperty = DependencyProperty.Register(
-            nameof(MaxLongitude), typeof(double), typeof(MapImageLayer), new PropertyMetadata(double.NaN));
+    /// <summary>
+    /// Description of the layer. Used to display copyright information on top of the map.
+    /// </summary>
+    public string Description
+    {
+        get => (string)GetValue(DescriptionProperty);
+        set => SetValue(DescriptionProperty, value);
+    }
 
-        public static readonly DependencyProperty MaxBoundingBoxWidthProperty = DependencyProperty.Register(
-            nameof(MaxBoundingBoxWidth), typeof(double), typeof(MapImageLayer), new PropertyMetadata(double.NaN));
+    /// <summary>
+    /// Relative size of the map image in relation to the current view size.
+    /// Setting a value greater than one will let MapImageLayer request images that
+    /// are larger than the view, in order to support smooth panning.
+    /// </summary>
+    public double RelativeImageSize
+    {
+        get => (double)GetValue(RelativeImageSizeProperty);
+        set => SetValue(RelativeImageSizeProperty, value);
+    }
 
-        public static readonly DependencyProperty RelativeImageSizeProperty = DependencyProperty.Register(
-            nameof(RelativeImageSize), typeof(double), typeof(MapImageLayer), new PropertyMetadata(1d));
+    /// <summary>
+    /// Minimum time interval between images updates.
+    /// </summary>
+    public TimeSpan UpdateInterval
+    {
+        get => (TimeSpan)GetValue(UpdateIntervalProperty);
+        set => SetValue(UpdateIntervalProperty, value);
+    }
 
-        public static readonly DependencyProperty UpdateIntervalProperty = DependencyProperty.Register(
-            nameof(UpdateInterval), typeof(TimeSpan), typeof(MapImageLayer),
-            new PropertyMetadata(TimeSpan.FromSeconds(0.2), (o, e) => ((MapImageLayer)o).updateTimer.Interval = (TimeSpan)e.NewValue));
+    /// <summary>
+    /// Controls if images are updated while the viewport is still changing.
+    /// </summary>
+    public bool UpdateWhileViewportChanging
+    {
+        get => (bool)GetValue(UpdateWhileViewportChangingProperty);
+        set => SetValue(UpdateWhileViewportChangingProperty, value);
+    }
 
-        public static readonly DependencyProperty UpdateWhileViewportChangingProperty = DependencyProperty.Register(
-            nameof(UpdateWhileViewportChanging), typeof(bool), typeof(MapImageLayer), new PropertyMetadata(false));
+    /// <summary>
+    /// Optional background brush. Sets MapBase.Background if not null and this layer is the base map layer.
+    /// </summary>
+    public Brush MapBackground
+    {
+        get => (Brush)GetValue(MapBackgroundProperty);
+        set => SetValue(MapBackgroundProperty, value);
+    }
 
-        public static readonly DependencyProperty DescriptionProperty = DependencyProperty.Register(
-            nameof(Description), typeof(string), typeof(MapImageLayer), new PropertyMetadata(null));
+    /// <summary>
+    /// Optional foreground brush. Sets MapBase.Foreground if not null and this layer is the base map layer.
+    /// </summary>
+    public Brush MapForeground
+    {
+        get => (Brush)GetValue(MapForegroundProperty);
+        set => SetValue(MapForegroundProperty, value);
+    }
 
-        public static readonly DependencyProperty MapBackgroundProperty = DependencyProperty.Register(
-            nameof(MapBackground), typeof(Brush), typeof(MapImageLayer), new PropertyMetadata(null));
+    /// <summary>
+    /// Gets the progress of the ImageLoader as a double value between 0 and 1.
+    /// </summary>
+    public double LoadingProgress => (double)GetValue(LoadingProgressProperty);
 
-        public static readonly DependencyProperty MapForegroundProperty = DependencyProperty.Register(
-            nameof(MapForeground), typeof(Brush), typeof(MapImageLayer), new PropertyMetadata(null));
-
-        private readonly DispatcherTimer updateTimer;
-        private BoundingBox boundingBox;
-        private bool updateInProgress;
-
-        public MapImageLayer()
+    protected override void SetParentMap(MapBase map)
+    {
+        if (map != null)
         {
-            Children.Add(new Image { Opacity = 0d, Stretch = Stretch.Fill });
-            Children.Add(new Image { Opacity = 0d, Stretch = Stretch.Fill });
-
-            updateTimer = new DispatcherTimer { Interval = UpdateInterval };
-            updateTimer.Tick += async (s, e) => await UpdateImageAsync();
-        }
-
-        /// <summary>
-        /// Optional minimum latitude value. Default is NaN.
-        /// </summary>
-        public double MinLatitude
-        {
-            get { return (double)GetValue(MinLatitudeProperty); }
-            set { SetValue(MinLatitudeProperty, value); }
-        }
-
-        /// <summary>
-        /// Optional maximum latitude value. Default is NaN.
-        /// </summary>
-        public double MaxLatitude
-        {
-            get { return (double)GetValue(MaxLatitudeProperty); }
-            set { SetValue(MaxLatitudeProperty, value); }
-        }
-
-        /// <summary>
-        /// Optional minimum longitude value. Default is NaN.
-        /// </summary>
-        public double MinLongitude
-        {
-            get { return (double)GetValue(MinLongitudeProperty); }
-            set { SetValue(MinLongitudeProperty, value); }
-        }
-
-        /// <summary>
-        /// Optional maximum longitude value. Default is NaN.
-        /// </summary>
-        public double MaxLongitude
-        {
-            get { return (double)GetValue(MaxLongitudeProperty); }
-            set { SetValue(MaxLongitudeProperty, value); }
-        }
-
-        /// <summary>
-        /// Optional maximum width of the map image's bounding box. Default is NaN.
-        /// </summary>
-        public double MaxBoundingBoxWidth
-        {
-            get { return (double)GetValue(MaxBoundingBoxWidthProperty); }
-            set { SetValue(MaxBoundingBoxWidthProperty, value); }
-        }
-
-        /// <summary>
-        /// Relative size of the map image in relation to the current viewport size.
-        /// Setting a value greater than one will let MapImageLayer request images that
-        /// are larger than the viewport, in order to support smooth panning.
-        /// </summary>
-        public double RelativeImageSize
-        {
-            get { return (double)GetValue(RelativeImageSizeProperty); }
-            set { SetValue(RelativeImageSizeProperty, value); }
-        }
-
-        /// <summary>
-        /// Minimum time interval between images updates.
-        /// </summary>
-        public TimeSpan UpdateInterval
-        {
-            get { return (TimeSpan)GetValue(UpdateIntervalProperty); }
-            set { SetValue(UpdateIntervalProperty, value); }
-        }
-
-        /// <summary>
-        /// Controls if images are updated while the viewport is still changing.
-        /// </summary>
-        public bool UpdateWhileViewportChanging
-        {
-            get { return (bool)GetValue(UpdateWhileViewportChangingProperty); }
-            set { SetValue(UpdateWhileViewportChangingProperty, value); }
-        }
-
-        /// <summary>
-        /// Description of the MapImageLayer.
-        /// Used to display copyright information on top of the map.
-        /// </summary>
-        public string Description
-        {
-            get { return (string)GetValue(DescriptionProperty); }
-            set { SetValue(DescriptionProperty, value); }
-        }
-
-        /// <summary>
-        /// Optional foreground brush.
-        /// Sets MapBase.Foreground if not null and the MapImageLayer is the base map layer.
-        /// </summary>
-        public Brush MapForeground
-        {
-            get { return (Brush)GetValue(MapForegroundProperty); }
-            set { SetValue(MapForegroundProperty, value); }
-        }
-
-        /// <summary>
-        /// Optional background brush.
-        /// Sets MapBase.Background if not null and the MapImageLayer is the base map layer.
-        /// </summary>
-        public Brush MapBackground
-        {
-            get { return (Brush)GetValue(MapBackgroundProperty); }
-            set { SetValue(MapBackgroundProperty, value); }
-        }
-
-        /// <summary>
-        /// Returns an ImageSource for the specified bounding box.
-        /// </summary>
-        protected abstract Task<ImageSource> GetImageAsync(BoundingBox boundingBox);
-
-        protected override void OnViewportChanged(ViewportChangedEventArgs e)
-        {
-            if (e.ProjectionChanged)
+            while (Children.Count < 2)
             {
-                ClearImages();
-
-                base.OnViewportChanged(e);
-
-                var task = UpdateImageAsync();
-            }
-            else
-            {
-                AdjustBoundingBox(e.LongitudeOffset);
-
-                base.OnViewportChanged(e);
-
-                if (updateTimer.IsEnabled && !UpdateWhileViewportChanging)
+                Children.Add(new Image
                 {
-                    updateTimer.Stop(); // restart
-                }
-
-                if (!updateTimer.IsEnabled)
-                {
-                    updateTimer.Start();
-                }
+                    Opacity = 0d,
+                    Stretch = Stretch.Fill
+                });
             }
         }
-
-        protected virtual async Task UpdateImageAsync()
+        else
         {
             updateTimer.Stop();
-
-            if (updateInProgress)
-            {
-                updateTimer.Start(); // update image on next timer tick
-            }
-            else if (ParentMap != null && ParentMap.RenderSize.Width > 0 && ParentMap.RenderSize.Height > 0)
-            {
-                updateInProgress = true;
-
-                UpdateBoundingBox();
-
-                ImageSource imageSource = null;
-
-                if (boundingBox != null)
-                {
-                    try
-                    {
-                        imageSource = await GetImageAsync(boundingBox);
-                    }
-                    catch (Exception ex)
-                    {
-                        Debug.WriteLine("MapImageLayer: " + ex.Message);
-                    }
-                }
-
-                SwapImages(imageSource);
-
-                updateInProgress = false;
-            }
+            ClearImages();
+            Children.Clear();
         }
 
-        private void UpdateBoundingBox()
+        base.SetParentMap(map);
+    }
+
+    protected override async void OnViewportChanged(ViewportChangedEventArgs e)
+    {
+        base.OnViewportChanged(e);
+
+        if (e.ProjectionChanged)
         {
-            var width = ParentMap.RenderSize.Width * RelativeImageSize;
-            var height = ParentMap.RenderSize.Height * RelativeImageSize;
-            var x = (ParentMap.RenderSize.Width - width) / 2d;
-            var y = (ParentMap.RenderSize.Height - height) / 2d;
-            var rect = new Rect(x, y, width, height);
-
-            boundingBox = ParentMap.MapProjection.ViewportRectToBoundingBox(rect);
-
-            if (boundingBox != null && boundingBox.HasValidBounds)
-            {
-                if (!double.IsNaN(MinLatitude) && boundingBox.South < MinLatitude)
-                {
-                    boundingBox.South = MinLatitude;
-                }
-
-                if (!double.IsNaN(MinLongitude) && boundingBox.West < MinLongitude)
-                {
-                    boundingBox.West = MinLongitude;
-                }
-
-                if (!double.IsNaN(MaxLatitude) && boundingBox.North > MaxLatitude)
-                {
-                    boundingBox.North = MaxLatitude;
-                }
-
-                if (!double.IsNaN(MaxLongitude) && boundingBox.East > MaxLongitude)
-                {
-                    boundingBox.East = MaxLongitude;
-                }
-
-                if (!double.IsNaN(MaxBoundingBoxWidth) && boundingBox.Width > MaxBoundingBoxWidth)
-                {
-                    var d = (boundingBox.Width - MaxBoundingBoxWidth) / 2d;
-                    boundingBox.West += d;
-                    boundingBox.East -= d;
-                }
-            }
+            ClearImages();
+            await UpdateImageAsync(); // update immediately
         }
-
-        private void AdjustBoundingBox(double longitudeOffset)
+        else
         {
-            if (Math.Abs(longitudeOffset) > 180d && boundingBox != null && boundingBox.HasValidBounds)
+            updateTimer.Run(!UpdateWhileViewportChanging);
+        }
+    }
+
+    protected abstract Task<ImageSource> GetImageAsync(Rect mapRect, IProgress<double> progress);
+
+    protected async Task UpdateImageAsync()
+    {
+        if (!updateInProgress)
+        {
+            updateInProgress = true;
+            updateTimer.Stop();
+
+            ImageSource image = null;
+            Rect? mapRect = null;
+
+            if (ParentMap != null)
             {
-                var offset = 360d * Math.Sign(longitudeOffset);
+                var width = ParentMap.ActualWidth * RelativeImageSize;
+                var height = ParentMap.ActualHeight * RelativeImageSize;
 
-                boundingBox.West += offset;
-                boundingBox.East += offset;
-
-                foreach (var element in Children.OfType<FrameworkElement>())
+                if (width > 0d && height > 0d)
                 {
-                    var bbox = GetBoundingBox(element);
+                    var x = (ParentMap.ActualWidth - width) / 2d;
+                    var y = (ParentMap.ActualHeight - height) / 2d;
 
-                    if (bbox != null && bbox.HasValidBounds)
-                    {
-                        SetBoundingBox(element, new BoundingBox(bbox.South, bbox.West + offset, bbox.North, bbox.East + offset));
-                    }
+                    mapRect = ParentMap.ViewTransform.ViewToMapBounds(new Rect(x, y, width, height));
+                    image = await GetImageAsync(mapRect.Value, loadingProgress);
                 }
             }
-        }
 
-        private void ClearImages()
+            SwapImages(image, mapRect);
+            updateInProgress = false;
+        }
+        else // update on next timer tick
         {
-            foreach (var element in Children.OfType<FrameworkElement>())
-            {
-                element.ClearValue(BoundingBoxProperty);
-                element.ClearValue(Image.SourceProperty);
-            }
+            updateTimer.Run();
         }
+    }
 
-        private void SwapImages(ImageSource imageSource)
+    private void ClearImages()
+    {
+        foreach (var image in Children.OfType<Image>())
+        {
+            image.ClearValue(MapRectProperty);
+            image.ClearValue(Image.SourceProperty);
+        }
+    }
+
+    private void SwapImages(ImageSource image, Rect? mapRect)
+    {
+        if (Children.Count >= 2)
         {
             var topImage = (Image)Children[0];
-            var bottomImage = (Image)Children[1];
 
             Children.RemoveAt(0);
             Children.Insert(1, topImage);
 
-            topImage.Source = imageSource;
-            SetBoundingBox(topImage, boundingBox?.Clone());
+            topImage.Source = image;
+            SetMapRect(topImage, mapRect);
 
-            topImage.BeginAnimation(OpacityProperty, new DoubleAnimation
+            if (MapBase.ImageFadeDuration > TimeSpan.Zero)
             {
-                To = 1d,
-                Duration = Tile.FadeDuration
-            });
-
-            bottomImage.BeginAnimation(OpacityProperty, new DoubleAnimation
+                FadeOver();
+            }
+            else
             {
-                To = 0d,
-                BeginTime = Tile.FadeDuration,
-                Duration = TimeSpan.Zero
-            });
+                topImage.Opacity = 1d;
+                Children[0].Opacity = 0d;
+            }
         }
     }
 }

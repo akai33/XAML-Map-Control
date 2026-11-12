@@ -1,102 +1,88 @@
-﻿// XAML Map Control - https://github.com/ClemensFischer/XAML-Map-Control
-// © 2018 Clemens Fischer
-// Licensed under the Microsoft Public License (Ms-PL)
-
-using System;
-#if !WINDOWS_UWP
+﻿using System;
+#if WPF
 using System.Windows;
+using System.Windows.Media;
+#elif AVALONIA
+using Avalonia;
 #endif
 
-namespace MapControl
+namespace MapControl;
+
+/// <summary>
+/// Elliptical Mercator Projection - EPSG:3395.
+/// See "Map Projections - A Working Manual" (https://pubs.usgs.gov/publication/pp1395), p.44-45.
+/// </summary>
+public class WorldMercatorProjection : MapProjection
 {
-    /// <summary>
-    /// Transforms map coordinates according to the "World Mercator" Projection, EPSG:3395.
-    /// Longitude values are transformed linearly to X values in meters, by multiplying with TrueScale.
-    /// Latitude values are transformed according to the elliptical versions of the Mercator equations,
-    /// as shown in "Map Projections - A Working Manual" (https://pubs.usgs.gov/pp/1395/report.pdf), p.44.
-    /// </summary>
-    public class WorldMercatorProjection : MapProjection
+    public const string DefaultCrsId = "EPSG:3395";
+
+    public WorldMercatorProjection() // parameterless constructor for XAML
+        : this(DefaultCrsId)
     {
-        public const double Wgs84Flattening = 1d / 298.257223563;
-        public static readonly double Wgs84Eccentricity = Math.Sqrt((2d - Wgs84Flattening) * Wgs84Flattening);
+    }
 
-        public static double MinLatitudeDelta = 1d / Wgs84EquatorialRadius; // corresponds to 1 meter
-        public static int MaxIterations = 10;
+    public WorldMercatorProjection(string crsId)
+    {
+        IsNormalCylindrical = true;
+        CrsId = crsId;
+    }
 
-        public WorldMercatorProjection()
-            : this("EPSG:3395")
+    public override Matrix RelativeTransform(double latitude, double longitude)
+    {
+        var e2 = (2d - Flattening) * Flattening;
+        var phi = latitude * Math.PI / 180d;
+        var sinPhi = Math.Sin(phi);
+        var k = Math.Sqrt(1d - e2 * sinPhi * sinPhi) / Math.Cos(phi); // p.44 (7-8)
+
+        return new Matrix(k, 0d, 0d, k, 0d, 0d);
+    }
+
+    public override Point LocationToMap(double latitude, double longitude)
+    {
+        var x = EquatorialRadius * longitude * Math.PI / 180d;
+        double y;
+
+        if (latitude <= -90d)
         {
+            y = double.NegativeInfinity;
+        }
+        else if (latitude >= 90d)
+        {
+            y = double.PositiveInfinity;
+        }
+        else
+        {
+            var phi = latitude * Math.PI / 180d;
+            var e = Math.Sqrt((2d - Flattening) * Flattening);
+            var eSinPhi = e * Math.Sin(phi);
+            var p = Math.Pow((1d - eSinPhi) / (1d + eSinPhi), e / 2d);
+
+            y = EquatorialRadius * Math.Log(Math.Tan(phi / 2d + Math.PI / 4d) * p); // p.44 (7-7)
         }
 
-        public WorldMercatorProjection(string crsId)
-        {
-            CrsId = crsId;
-            IsCylindrical = true;
-            MaxLatitude = YToLatitude(180d);
-        }
+        return new Point(x, y);
+    }
 
-        public override Vector GetMapScale(Location location)
-        {
-            var lat = location.Latitude * Math.PI / 180d;
-            var eSinLat = Wgs84Eccentricity * Math.Sin(lat);
-            var scale = ViewportScale * Math.Sqrt(1d - eSinLat * eSinLat) / Math.Cos(lat);
+    public override Location MapToLocation(double x, double y)
+    {
+        var t = Math.Exp(-y / EquatorialRadius); // p.44 (7-10)
+        var phi = ApproximateLatitude((2d - Flattening) * Flattening, t); // p.45 (3-5)
+        var lambda = x / EquatorialRadius;
 
-            return new Vector(scale, scale);
-        }
+        return new Location(phi * 180d / Math.PI, lambda * 180d / Math.PI);
+    }
 
-        public override Point LocationToPoint(Location location)
-        {
-            return new Point(
-                TrueScale * location.Longitude,
-                TrueScale * LatitudeToY(location.Latitude));
-        }
+    internal static double ApproximateLatitude(double e2, double t)
+    {
+        var e4 = e2 * e2;
+        var e6 = e2 * e4;
+        var e8 = e2 * e6;
+        var chi = Math.PI / 2d - 2d * Math.Atan(t); // p.45 (7-13)
 
-        public override Location PointToLocation(Point point)
-        {
-            return new Location(
-                YToLatitude(point.Y / TrueScale),
-                point.X / TrueScale);
-        }
-
-        public static double LatitudeToY(double latitude)
-        {
-            if (latitude <= -90d)
-            {
-                return double.NegativeInfinity;
-            }
-
-            if (latitude >= 90d)
-            {
-                return double.PositiveInfinity;
-            }
-
-            var lat = latitude * Math.PI / 180d;
-
-            return Math.Log(Math.Tan(lat / 2d + Math.PI / 4d) * ConformalFactor(lat)) / Math.PI * 180d;
-        }
-
-        public static double YToLatitude(double y)
-        {
-            var t = Math.Exp(-y * Math.PI / 180d);
-            var lat = Math.PI / 2d - 2d * Math.Atan(t);
-            var latDelta = 1d;
-
-            for (int i = 0; i < MaxIterations && latDelta > MinLatitudeDelta; i++)
-            {
-                var newLat = Math.PI / 2d - 2d * Math.Atan(t * ConformalFactor(lat));
-
-                latDelta = Math.Abs(newLat - lat);
-                lat = newLat;
-            }
-
-            return lat / Math.PI * 180d;
-        }
-
-        private static double ConformalFactor(double lat)
-        {
-            var eSinLat = Wgs84Eccentricity * Math.Sin(lat);
-
-            return Math.Pow((1d - eSinLat) / (1d + eSinLat), Wgs84Eccentricity / 2d);
-        }
+        return chi +
+            (e2 / 2d + e4 * 5d / 24d + e6 / 12d + e8 * 13d / 360d) * Math.Sin(2d * chi) +
+            (e4 * 7d / 48d + e6 * 29d / 240d + e8 * 811d / 11520d) * Math.Sin(4d * chi) +
+            (e6 * 7d / 120d + e8 * 81d / 1120d) * Math.Sin(6d * chi) +
+             e8 * 4279d / 161280d * Math.Sin(8d * chi); // p.45 (3-5)
     }
 }

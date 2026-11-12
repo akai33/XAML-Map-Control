@@ -1,51 +1,29 @@
-﻿// XAML Map Control - https://github.com/ClemensFischer/XAML-Map-Control
-// © 2018 Clemens Fischer
-// Licensed under the Microsoft Public License (Ms-PL)
-
-using System;
-#if WINDOWS_UWP
-using Windows.UI.Xaml;
-using Windows.UI.Xaml.Controls;
-using Windows.UI.Xaml.Media.Animation;
-#else
-using System.Windows;
-using System.Windows.Controls;
-using System.Windows.Media.Animation;
+﻿using System;
+using System.Threading.Tasks;
+#if WPF
+using System.Windows.Media;
+#elif UWP
+using Windows.UI.Xaml.Media;
+#elif WINUI
+using Microsoft.UI.Xaml.Media;
+#elif AVALONIA
+using ImageSource = Avalonia.Media.IImage;
 #endif
 
-namespace MapControl
+namespace MapControl;
+
+public abstract class Tile(int zoomLevel, int x, int y, int columnCount)
 {
-    public partial class Tile
-    {
-        public static TimeSpan FadeDuration { get; set; } = TimeSpan.FromSeconds(0.15);
+    public int ZoomLevel => zoomLevel;
+    public int X => x;
+    public int Y => y;
+    public int Row => y;
+    public int Column { get; } = ((x % columnCount) + columnCount) % columnCount;
 
-        public readonly int ZoomLevel;
-        public readonly int X;
-        public readonly int Y;
-        public readonly Image Image = new Image { Opacity = 0d };
+    public bool IsPending { get; set; } = true;
 
-        public Tile(int zoomLevel, int x, int y)
-        {
-            ZoomLevel = zoomLevel;
-            X = x;
-            Y = y;
-        }
-
-        public bool Pending { get; set; } = true;
-
-        public int XIndex
-        {
-            get
-            {
-                var numTiles = 1 << ZoomLevel;
-                return ((X % numTiles) + numTiles) % numTiles;
-            }
-        }
-
-        private void FadeIn()
-        {
-            Image.BeginAnimation(UIElement.OpacityProperty, new DoubleAnimation { From = 0d, To = 1d, Duration = FadeDuration, FillBehavior = FillBehavior.Stop });
-            Image.Opacity = 1d;
-        }
-    }
+    /// <summary>
+    /// Runs a tile image download Task and passes the result to the UI thread.
+    /// </summary>
+    public abstract Task LoadImageAsync(Func<Task<ImageSource>> loadImageFunc);
 }

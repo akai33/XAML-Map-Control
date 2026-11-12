@@ -1,0 +1,16 @@
+<Project>
+    <PropertyGroup>
+        <Product>XAML Map Control</Product>
+        <Authors>Clemens Fischer</Authors>
+        <Copyright>Copyright © 2026 Clemens Fischer</Copyright>
+        <Version>17.4.0</Version>
+        <AssemblyVersion>$(Version)</AssemblyVersion>
+        <AssemblyOriginatorKeyFile>..\..\MapControl.snk</AssemblyOriginatorKeyFile>
+        <SignAssembly>true</SignAssembly>
+        <DelaySign>false</DelaySign>
+        <PackageTags>XAML WPF UWP WinUI Avalonia Map OpenStreetMap</PackageTags>
+        <PackageLicenseExpression>MIT</PackageLicenseExpression>
+        <PackageProjectUrl>https://github.com/ClemensFischer/XAML-Map-Control</PackageProjectUrl>
+        <Nullable>disable</Nullable>
+    </PropertyGroup>
+</Project>

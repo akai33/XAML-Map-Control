@@ -1,95 +1,49 @@
-﻿// XAML Map Control - https://github.com/ClemensFischer/XAML-Map-Control
-// © 2018 Clemens Fischer
-// Licensed under the Microsoft Public License (Ms-PL)
-
-using System;
+﻿using System;
 using System.Globalization;
 
-namespace MapControl
-{
-    /// <summary>
-    /// A geographic bounding box with south and north latitude and west and east longitude values in degrees.
-    /// </summary>
-#if !WINDOWS_UWP
-    [System.ComponentModel.TypeConverter(typeof(BoundingBoxConverter))]
+namespace MapControl;
+
+/// <summary>
+/// A geographic bounding box with south and north latitude and west and east longitude values in degrees.
+/// </summary>
+#if UWP || WINUI
+[Windows.Foundation.Metadata.CreateFromString(MethodName = "Parse")]
+#else
+[System.ComponentModel.TypeConverter(typeof(BoundingBoxConverter))]
 #endif
-    public class BoundingBox
+public class BoundingBox(double latitude1, double longitude1, double latitude2, double longitude2)
+{
+    public double South { get; } = Math.Min(Math.Max(Math.Min(latitude1, latitude2), -90d), 90d);
+    public double North { get; } = Math.Min(Math.Max(Math.Max(latitude1, latitude2), -90d), 90d);
+    public double West { get; } = Math.Min(longitude1, longitude2);
+    public double East { get; } = Math.Max(longitude1, longitude2);
+
+    public override string ToString()
     {
-        private double south;
-        private double west;
-        private double north;
-        private double east;
+        return string.Format(CultureInfo.InvariantCulture, "{0},{1},{2},{3}", South, West, North, East);
+    }
 
-        public BoundingBox()
+    /// <summary>
+    /// Creates a BoundingBox instance from a string containing a comma-separated sequence of four floating point numbers.
+    /// </summary>
+    public static BoundingBox Parse(string boundingBox)
+    {
+        string[] values = null;
+
+        if (!string.IsNullOrEmpty(boundingBox))
         {
+            values = boundingBox.Split(',');
         }
 
-        public BoundingBox(double south, double west, double north, double east)
+        if (values == null || values.Length != 4 && values.Length != 5)
         {
-            South = south;
-            West = west;
-            North = north;
-            East = east;
+            throw new FormatException($"{nameof(BoundingBox)} string must contain a comma-separated sequence of four floating point numbers.");
         }
 
-        public double South
-        {
-            get { return south; }
-            set { south = Math.Min(Math.Max(value, -90d), 90d); }
-        }
-
-        public double West
-        {
-            get { return west; }
-            set { west = value; }
-        }
-
-        public double North
-        {
-            get { return north; }
-            set { north = Math.Min(Math.Max(value, -90d), 90d); }
-        }
-
-        public double East
-        {
-            get { return east; }
-            set { east = value; }
-        }
-
-        public virtual double Width
-        {
-            get { return east - west; }
-        }
-
-        public virtual double Height
-        {
-            get { return north - south; }
-        }
-
-        public bool HasValidBounds
-        {
-            get { return south < north && west < east; }
-        }
-
-        public virtual BoundingBox Clone()
-        {
-            return new BoundingBox(south, west, north, east);
-        }
-
-        public static BoundingBox Parse(string s)
-        {
-            var values = s.Split(new char[] { ',' });
-
-            if (values.Length != 4)
-            {
-                throw new FormatException("BoundingBox string must be a comma-separated list of four double values.");
-            }
-
-            return new BoundingBox(
-                double.Parse(values[0], NumberStyles.Float, CultureInfo.InvariantCulture),
-                double.Parse(values[1], NumberStyles.Float, CultureInfo.InvariantCulture),
-                double.Parse(values[2], NumberStyles.Float, CultureInfo.InvariantCulture),
-                double.Parse(values[3], NumberStyles.Float, CultureInfo.InvariantCulture));
-        }
+        return new BoundingBox(
+            double.Parse(values[0], NumberStyles.Float, CultureInfo.InvariantCulture),
+            double.Parse(values[1], NumberStyles.Float, CultureInfo.InvariantCulture),
+            double.Parse(values[2], NumberStyles.Float, CultureInfo.InvariantCulture),
+            double.Parse(values[3], NumberStyles.Float, CultureInfo.InvariantCulture));
     }
 }

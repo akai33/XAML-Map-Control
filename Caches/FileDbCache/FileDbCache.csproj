@@ -1,0 +1,19 @@
+﻿<Project Sdk="Microsoft.NET.Sdk">
+    <PropertyGroup>
+        <TargetFramework>netstandard2.0</TargetFramework>
+        <LangVersion>14.0</LangVersion>
+        <RootNamespace>MapControl.Caching</RootNamespace>
+        <AssemblyTitle>XAML Map Control FileDbCache Library</AssemblyTitle>
+        <GeneratePackageOnBuild>$(GeneratePackage)</GeneratePackageOnBuild>
+        <PackageId>XAML.MapControl.FileDbCache</PackageId>
+        <Title>$(AssemblyTitle)</Title>
+        <Description>IDistributedCache implementation for XAML Map Control, based on EzTools FileDb</Description>
+    </PropertyGroup>
+
+    <ItemGroup>
+        <PackageReference Include="FileDb.Standard" Version="7.4.4" />
+        <PackageReference Include="Microsoft.Extensions.Caching.Abstractions" Version="11.0.0" />
+        <PackageReference Include="Microsoft.Extensions.Logging.Abstractions" Version="11.0.0" />
+        <PackageReference Include="Microsoft.Extensions.Options" Version="11.0.0" />
+    </ItemGroup>
+</Project>
